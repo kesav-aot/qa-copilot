@@ -8,7 +8,13 @@
   "author": {
     "name": "QA Copilot"
   },
-  "keywords": ["qa", "testing", "automation", "playwright", "browser"],
+  "keywords": [
+    "qa",
+    "testing",
+    "automation",
+    "playwright",
+    "browser"
+  ],
   "server": {
     "type": "binary",
     "entry_point": "bin/qa-copilot-launch",
@@ -25,6 +31,29 @@
         "QA_COPILOT_CAPABILITIES": "${user_config.capabilities}",
         "QA_COPILOT_USERNAME": "${user_config.username}",
         "QA_COPILOT_PASSWORD": "${user_config.password}"
+      },
+      "platform_overrides": {
+        "win32": {
+          "command": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            "${__dirname}\\bin\\qa-copilot-launch.ps1"
+          ],
+          "env": {
+            "QA_COPILOT_BUNDLE": "${__dirname}",
+            "QA_COPILOT_HOME": "${user_config.workspace_dir}",
+            "QA_COPILOT_APP_URL": "${user_config.app_url}",
+            "QA_COPILOT_ENV_NAME": "${user_config.environment_name}",
+            "QA_COPILOT_LOGIN_PATH": "${user_config.login_path}",
+            "QA_COPILOT_ACCOUNT": "${user_config.account_name}",
+            "QA_COPILOT_CAPABILITIES": "${user_config.capabilities}",
+            "QA_COPILOT_USERNAME": "${user_config.username}",
+            "QA_COPILOT_PASSWORD": "${user_config.password}"
+          }
+        }
       }
     }
   },
@@ -86,6 +115,10 @@
   },
   "compatibility": {
     "claude_desktop": ">=0.10.0",
-    "platforms": ["darwin", "linux"]
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
   }
 }

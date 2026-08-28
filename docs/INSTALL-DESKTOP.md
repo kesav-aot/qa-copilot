@@ -27,7 +27,12 @@ Leave the address blank if you would rather try the built-in demo app first.
 
 ## 3. Restart Claude Desktop
 
-Quit it completely — ⌘Q, not just closing the window — and reopen.
+Quit it completely — ⌘Q on macOS, not just closing the window — and reopen.
+
+> **Windows:** supported, but not yet tested on a Windows machine. The launcher
+> is [`qa-copilot-launch.ps1`](../packaging/launcher/qa-copilot-launch.ps1),
+> run through PowerShell 5.1. If it fails, please report what the extension log
+> says — that is the fastest way to get it fixed.
 
 **The first launch takes a few minutes.** It downloads a private Python and a
 test browser (about 500 MB, once). If Claude Desktop gives up waiting, quit and
@@ -80,6 +85,7 @@ a real credential ever survived, the response is discarded rather than sent.
 
 The bundle carries source only — about 115 KB. The Python interpreter, the
 dependencies and the browser are fetched on the user's machine at first launch
-by [`packaging/mcpb/bin/qa-copilot-launch`](../packaging/mcpb/bin/qa-copilot-launch),
+by [`packaging/launcher/`](../packaging/launcher/) — one script per platform,
+shared with the Claude Code plugin —
 which is written to be re-runnable: every stage leaves a marker, so an
 interrupted first start resumes instead of beginning again.

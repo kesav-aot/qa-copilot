@@ -1,0 +1,23 @@
+{
+  "name": "qa-copilot",
+  "owner": {
+    "name": "QA Copilot",
+    "url": "https://github.com/kesav-aot"
+  },
+  "description": "Plain-English test automation that never shows the model a credential.",
+  "plugins": [
+    {
+      "name": "qa-copilot",
+      "source": "./",
+      "displayName": "QA Copilot",
+      "description": "Write tests in ordinary English and run them in a real browser. The model plans against identity aliases and capabilities; a trusted local layer resolves the credentials and scrubs every response on the way back.",
+      "version": "0.1.0",
+      "author": { "name": "QA Copilot" },
+      "homepage": "https://github.com/kesav-aot/qa-copilot",
+      "repository": "https://github.com/kesav-aot/qa-copilot",
+      "license": "MIT",
+      "category": "testing",
+      "keywords": ["qa", "testing", "automation", "playwright", "browser", "security"]
+    }
+  ]
+}

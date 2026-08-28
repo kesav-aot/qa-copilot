@@ -49,7 +49,9 @@ def build() -> Path:
 
     # 1. the manifest and the launcher
     shutil.copy2(PKG / "manifest.json", stage / "manifest.json")
-    _copy_tree(PKG / "bin", stage / "bin")
+    # The launchers are shared with the Claude Code plugin, so they live outside
+    # the bundle directory and are copied into the bin/ the manifest expects.
+    _copy_tree(ROOT / "packaging" / "launcher", stage / "bin")
     _copy_tree(PKG / "bootstrap", stage / "bootstrap")
     (stage / "bin" / "qa-copilot-launch").chmod(0o755)
 

@@ -3,9 +3,13 @@
   "version": "0.1.0",
   "description": "Secret-blind QA automation. Plan tests against identity aliases; a trusted local layer resolves credentials and drives the browser.",
   "author": { "name": "QA Copilot" },
+  "homepage": "https://github.com/kesav-aot/qa-copilot",
+  "repository": "https://github.com/kesav-aot/qa-copilot",
+  "license": "MIT",
+  "keywords": ["qa", "testing", "automation", "playwright", "security"],
   "mcpServers": {
     "qa-copilot": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/.venv/bin/qa-copilot-mcp",
+      "command": "${CLAUDE_PLUGIN_ROOT}/packaging/launcher/qa-copilot-launch",
       "env": {
         "QA_COPILOT_CONFIG": "${CLAUDE_PLUGIN_ROOT}/config",
         "QA_COPILOT_STATE": "${CLAUDE_PLUGIN_ROOT}/.qa-copilot"

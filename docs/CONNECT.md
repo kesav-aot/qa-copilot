@@ -118,6 +118,24 @@ secret://qa/viewer/password   →   QA_SECRET__QA__VIEWER__PASSWORD=...
 
 ## 2. Connect it to Claude Code
 
+### The short way: install it from GitHub
+
+```
+/plugin marketplace add kesav-aot/qa-copilot
+/plugin install qa-copilot@qa-copilot
+```
+
+That brings the MCP server, the five skills, the three subagents and the
+credential-blocking hook in one step. Nothing needs to be installed first: the
+plugin's server command is a launcher that provisions its own Python and
+dependencies on first start, under `~/.qa-copilot/runtime`. The first launch
+takes a minute; later ones are immediate.
+
+Use this when you want QA Copilot as a tool. Use the manual route below when
+you are working *on* QA Copilot, or want it pointed at a checkout you control.
+
+### The manual way
+
 ```bash
 cd "/path/to/QA Copilot"
 .venv/bin/qa-copilot mcp-config
