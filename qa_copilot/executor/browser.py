@@ -10,6 +10,8 @@ permitted here). Two obligations come with that:
 
 from __future__ import annotations
 
+import asyncio
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,6 +47,50 @@ class BrowserSession:
     artifact_dir: Path
     authenticated_as: str | None = None
     _secret_targets: list[Target] = field(default_factory=list)
+    _new_pages: list["Page"] = field(default_factory=list)
+    _window_stack: list["Page"] = field(default_factory=list)
+
+    # --- windows the app opens itself -------------------------------------
+    def watch_for_popups(self) -> None:
+        """Record every window the application opens.
+
+        Apps that show a document in ``window.open`` would otherwise be
+        untestable: the click succeeds, the popup carries the content, and every
+        assertion afterwards runs against the untouched opener — passing or
+        failing for reasons that have nothing to do with the document.
+        """
+        try:
+            self.page.context.on("page", self._new_pages.append)
+        except Exception:
+            pass
+
+    async def _follow_popup(self, timeout_ms: int = 700) -> str | None:
+        """Make the window the last click opened the page steps run against."""
+        deadline = time.monotonic() + timeout_ms / 1000
+        while time.monotonic() < deadline:
+            if self._new_pages:
+                popup = self._new_pages.pop()
+                self._new_pages.clear()
+                try:
+                    await popup.wait_for_load_state("domcontentloaded", timeout=10_000)
+                except Exception:
+                    pass  # a slow popup is still the right page to be on
+                self._window_stack.append(self.page)
+                self.page = popup
+                return popup.url
+            await asyncio.sleep(0.05)
+        return None
+
+    async def back_to_opener(self) -> str | None:
+        """Return to the window that opened the current one."""
+        if not self._window_stack:
+            return None
+        popup, self.page = self.page, self._window_stack.pop()
+        try:
+            await popup.close()
+        except Exception:
+            pass
+        return self.page.url
 
     # --- navigation & interaction ----------------------------------------
     def url(self) -> str:
@@ -58,9 +104,10 @@ class BrowserSession:
         await self.page.goto(url, wait_until="domcontentloaded")
         return self.page.url
 
-    async def click(self, target: Target, timeout_ms: int = 10_000) -> None:
+    async def click(self, target: Target, timeout_ms: int = 10_000) -> str | None:
         locator = await _locator(self.page, target)
         await locator.first.click(timeout=timeout_ms)
+        return await self._follow_popup()
 
     async def fill(self, target: Target, value: str, timeout_ms: int = 10_000) -> None:
         locator = await _locator(self.page, target)
@@ -269,7 +316,7 @@ async def open_session(
         await pw.stop()
         raise
 
-    return BrowserSession(
+    session = BrowserSession(
         session_id=uuid.uuid4().hex[:12],
         environment=environment,
         page=page,
@@ -277,3 +324,5 @@ async def open_session(
         playwright=pw,
         artifact_dir=artifact_dir,
     )
+    session.watch_for_popups()
+    return session

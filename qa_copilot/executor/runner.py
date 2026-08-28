@@ -201,7 +201,13 @@ class PlanRunner:
             return f"at {url}", None
 
         if action == "click":
-            await session.click(step.target)  # type: ignore[union-attr]
+            popup_url = await session.click(step.target)  # type: ignore[union-attr]
+            if popup_url:
+                # Say so loudly: every later step now runs against the new window.
+                return (
+                    f"clicked {step.target.summary()} — it opened a window, "
+                    f"now working in {popup_url}"
+                ), None
             return f"clicked {step.target.summary()}", None
 
         if action == "fill":
