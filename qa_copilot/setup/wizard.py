@@ -90,6 +90,7 @@ async def run_wizard(
     work_dir: Path | None = None,
     reader=input,
     password_reader=getpass.getpass,
+    extra_values: dict[str, str] | None = None,
 ) -> int:
     secrets_file = secrets_file or Path(".env")
     work_dir = work_dir or Path.cwd()
@@ -204,8 +205,21 @@ async def run_wizard(
         await session.page.goto(base + login_path, wait_until="domcontentloaded")
         from qa_copilot.executor.resolver import resolve
 
+        if found.extras and not extra_values:
+            _say(
+                f"{RED}  This sign-in form also asks for: "
+                f"{', '.join(sorted(found.extras))}.{RESET}"
+            )
+            _say("  Use the setup page, which asks for whatever the form needs:")
+            _say("      qa-copilot setup")
+            _say(f"{DIM}  Nothing was written.{RESET}")
+            return 2
+
+        extras = {k: v for k, v in (extra_values or {}).items() if k in found.extras}
         await (await resolve(session.page, found.username.target)).first.fill(username)
         await (await resolve(session.page, found.password.target)).first.fill(password)
+        for name, value in extras.items():
+            await (await resolve(session.page, found.extras[name].target)).first.fill(value)
         await (await resolve(session.page, found.submit.target)).first.click()
         try:
             await session.page.wait_for_load_state("networkidle", timeout=10_000)
@@ -231,6 +245,8 @@ async def run_wizard(
         await (await resolve(session.page, found.password.target)).first.fill(
             "deliberately-wrong-" + "x" * 8
         )
+        for name, value in extras.items():
+            await (await resolve(session.page, found.extras[name].target)).first.fill(value)
         await (await resolve(session.page, found.submit.target)).first.click()
         try:
             await session.page.wait_for_load_state("networkidle", timeout=8_000)
@@ -248,6 +264,7 @@ async def run_wizard(
         username_target=found.username.target,
         password_target=found.password.target,
         submit_target=found.submit.target,
+        extra_targets={name: found.extras[name].target for name in extras},
         success_url_contains=landed if landed != "/" else None,
         failure_target=failure_target,
     )
@@ -257,6 +274,7 @@ async def run_wizard(
     }
     user_ref = f"secret://{environment}/{account}/username"
     pass_ref = f"secret://{environment}/{account}/password"
+    extra_refs = {name: f"secret://{environment}/{account}/{name}" for name in extras}
     identity_body = {
         "description": f"Test account for {environment} ({account}).",
         "capabilities": capabilities,
@@ -264,12 +282,18 @@ async def run_wizard(
         "password_ref": pass_ref,
         "environments": [environment],
     }
+    if extra_refs:
+        identity_body["extra_refs"] = extra_refs
 
     try:
-        append_secrets(
-            secrets_file,
-            {ref_to_env_var(user_ref): username, ref_to_env_var(pass_ref): password},
+        secrets_to_write = {
+            ref_to_env_var(user_ref): username,
+            ref_to_env_var(pass_ref): password,
+        }
+        secrets_to_write.update(
+            {ref_to_env_var(ref): extras[name] for name, ref in extra_refs.items()}
         )
+        append_secrets(secrets_file, secrets_to_write)
         append_under_key(environments_file, "environments", environment, env_body)
         append_under_key(identities_file, "identities", alias, identity_body)
     except ConfigWriteError as exc:

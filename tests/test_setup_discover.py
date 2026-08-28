@@ -78,3 +78,24 @@ async def test_the_error_element_is_found_after_a_bad_sign_in(browser, demo_serv
 async def test_no_error_element_on_a_clean_page(browser, demo_server):
     await browser.page.goto(f"{demo_server}/login")
     assert await find_error_target(browser.page) is None
+
+
+async def test_a_third_credential_field_is_found(browser):
+    """Some sign-in forms want a PIN as well. Nothing can declare that ahead of time —
+    the form has to be looked at, which is the point of this module."""
+    found = await discover_login(browser.page, (FIXTURES / "pin-login.html").as_uri())
+    assert found.complete
+    assert list(found.extras) == ["pin"], found.extras
+    assert found.extras["pin"].target.css == "#n" or found.extras["pin"].target.label
+
+
+async def test_an_ordinary_form_reports_no_extra_fields(browser, demo_server):
+    """The common case must not sprout fields that are not there."""
+    found = await discover_login(browser.page, f"{demo_server}/login")
+    assert found.extras == {}
+
+
+async def test_hidden_fields_are_not_asked_for(browser):
+    """A CSRF token is not a credential a person can be asked to type."""
+    found = await discover_login(browser.page, (FIXTURES / "pin-login.html").as_uri())
+    assert "csrf" not in found.extras

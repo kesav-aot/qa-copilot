@@ -36,6 +36,42 @@ _FIND_ELEMENT = """
 """
 
 
+# Every visible field in the sign-in form that is not the username, the password
+# or the button. Same shape as _FIND_ELEMENT so _target_for can consume it.
+_FIND_EXTRA_FIELDS = """
+() => {
+    const pw = document.querySelector('input[type=password]');
+    if (!pw) return [];
+    const form = pw.closest('form') || document;
+    const skip = ['hidden','submit','button','checkbox','radio','image','reset'];
+    const inputs = Array.from(form.querySelectorAll('input, textarea, select'))
+        .filter(i => !skip.includes(i.type));
+    const before = inputs.slice(0, inputs.indexOf(pw)).reverse();
+    const user = before.find(i => ['email','text','tel'].includes(i.type) || !i.type)
+                 || before[0] || null;
+    return inputs
+        .filter(i => i !== pw && i !== user)
+        .filter(i => i.offsetParent !== null)
+        .map(el => {
+            let label = null;
+            if (el.labels && el.labels.length) label = el.labels[0].innerText.trim();
+            if (!label && el.getAttribute('aria-label')) label = el.getAttribute('aria-label');
+            return {
+                testid: el.getAttribute('data-testid') || el.getAttribute('data-test')
+                        || el.getAttribute('data-cy'),
+                label: label,
+                placeholder: el.getAttribute('placeholder'),
+                name: el.getAttribute('name'),
+                id: el.getAttribute('id'),
+                text: (el.innerText || el.value || '').trim().slice(0, 40),
+                tag: el.tagName.toLowerCase(),
+                type: el.getAttribute('type'),
+            };
+        });
+}
+"""
+
+
 @dataclass
 class Found:
     target: Target
@@ -52,6 +88,7 @@ class LoginDiscovery:
     username: Found | None = None
     password: Found | None = None
     submit: Found | None = None
+    extras: dict[str, Found] = field(default_factory=dict)
     problems: list[str] = field(default_factory=list)
     inventory: dict[str, list[str]] = field(default_factory=dict)
 
@@ -153,9 +190,30 @@ async def discover_login(page, url: str) -> LoginDiscovery:
     else:
         result.problems.append("I could not find a sign-in button on that page.")
 
+    # Anything else the form insists on — a PIN, a tenant, a clinic code. These
+    # cannot be assumed in advance: the only way to know a form wants a third
+    # credential is to look at it.
+    for index, info in enumerate(await page.evaluate(_FIND_EXTRA_FIELDS)):
+        name = _extra_name(info, index)
+        if name in ("username", "password"):
+            continue
+        result.extras[name] = _target_for(info, is_button=False)
+
     if not result.complete:
         result.inventory = await page_inventory(page)
     return result
+
+
+def _extra_name(info: dict[str, Any], index: int) -> str:
+    """A short, stable key for a field, used in config and shown to a person."""
+    import re
+
+    for candidate in (info.get("name"), info.get("label"), info.get("placeholder"), info.get("id")):
+        if candidate:
+            slug = re.sub(r"[^a-z0-9]+", "_", str(candidate).strip().lower()).strip("_")
+            if slug:
+                return slug
+    return f"field_{index + 2}"
 
 
 async def find_error_target(page) -> Target | None:

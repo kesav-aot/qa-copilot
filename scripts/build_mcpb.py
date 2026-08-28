@@ -65,10 +65,14 @@ def build() -> Path:
             shutil.copy2(ROOT / optional, src / optional)
 
     # 3. the starting workspace, and the docs a QA engineer actually needs
+    # From packaging/, never from config/. That directory is a working
+    # configuration — whoever develops QA Copilot points it at their own
+    # applications, and those environments, aliases and host names must not be
+    # shipped to everyone who installs the extension.
     defaults = stage / "config-defaults"
     defaults.mkdir()
     for name in CONFIG_DEFAULTS:
-        shutil.copy2(ROOT / "config" / name, defaults / name)
+        shutil.copy2(ROOT / "packaging" / "config-defaults" / name, defaults / name)
     docs = stage / "docs"
     docs.mkdir()
     for name in ("WRITING-TESTS.md", "CONNECT.md"):

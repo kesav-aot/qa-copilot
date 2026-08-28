@@ -1,0 +1,17 @@
+secrets:
+  provider: env        # env | file
+  dotenv: .env         # loaded if present, for local runs
+  # provider: file
+  # file_path: secrets.enc.yaml   # Fernet-encrypted, unlocked by QA_COPILOT_VAULT_KEY
+
+policy:
+  allowed_environments: [demo]
+  blocked_environments: [production, prod, live]
+  approval_required_risk: medium   # low | medium | high
+  destructive_actions: [delete, disable, purge, drop, revoke, deactivate]
+  max_steps: 100
+  allow_css_selectors: true        # set false to force role/label/testid targets
+
+artifact_dir: artifacts
+plan_dir: plans          # reviewed plans, saved by save_test_plan
+testcase_dir: testcases  # manual test cases to ingest

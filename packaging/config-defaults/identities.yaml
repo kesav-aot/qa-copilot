@@ -1,0 +1,20 @@
+# Test identities.
+#
+# The model is shown alias + description + capabilities. It is never shown the
+# secret:// references below, and there is no MCP tool that resolves them.
+
+identities:
+
+  ADMIN_USER:
+    description: Administrator who can manage users and settings.
+    capabilities: [browse, manage_users, manage_settings]
+    username_ref: secret://demo/admin/username
+    password_ref: secret://demo/admin/password
+    environments: [demo]
+
+  STANDARD_USER:
+    description: Ordinary signed-in customer with no administrative rights.
+    capabilities: [browse, create_order]
+    username_ref: secret://demo/user/username
+    password_ref: secret://demo/user/password
+    environments: [demo]

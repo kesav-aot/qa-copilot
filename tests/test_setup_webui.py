@@ -22,6 +22,24 @@ PASSWORD = "Adm1n-Demo-Pass!"
 USERNAME = "admin@qa.local"
 
 
+@pytest.fixture(autouse=True)
+def _no_leftover_secrets():
+    """Filling an account sets os.environ so a running assistant sees it at once.
+
+    That is deliberate, and it means one test's secrets would otherwise make the
+    next one think the account was already configured.
+    """
+    import os
+
+    def clear() -> None:
+        for key in [k for k in os.environ if k.startswith("QA_SECRET__THEIRS__")]:
+            del os.environ[key]
+
+    clear()
+    yield
+    clear()
+
+
 @pytest.fixture
 def workspace(tmp_path):
     config = tmp_path / "config"
@@ -88,7 +106,14 @@ def test_the_form_is_served_with_the_token(session):
     status, body = get(session.url)
     assert status == 200
     assert "Set up QA Copilot" in body
-    assert 'type="password"' in body
+    assert 'id="look"' in body, "step one is to look at the sign-in page"
+
+
+def test_no_credential_fields_exist_before_the_page_has_been_inspected(session):
+    """They are built from what the form turns out to ask for, not assumed."""
+    _, body = get(session.url)
+    assert 'name="password"' not in body
+    assert 'name="username"' not in body
 
 
 def test_submitting_without_the_token_is_refused(session):
@@ -171,8 +196,17 @@ async def test_the_form_works_in_a_real_browser(session, workspace, demo_server)
             await page.fill("[name=app_url]", demo_server)
             await page.fill("[name=environment]", "myapp")
             await page.check("input[value=manage_users]")
-            await page.fill("[name=username]", USERNAME)
-            await page.fill("[name=password]", PASSWORD)
+
+            # Step one: the page asks the app what it wants, then builds itself.
+            await page.click("#look")
+            await page.wait_for_selector("[data-field=password]", timeout=90_000)
+            fields = await page.eval_on_selector_all(
+                "[data-field]", "els => els.map(e => e.dataset.field)"
+            )
+            assert fields == ["username", "password"], fields
+
+            await page.fill("[data-field=username]", USERNAME)
+            await page.fill("[data-field=password]", PASSWORD)
             await page.click("#go")
             await page.wait_for_function(
                 "document.querySelector('#go').textContent === 'Saved'", timeout=90_000
@@ -180,7 +214,7 @@ async def test_the_form_works_in_a_real_browser(session, workspace, demo_server)
             body = await page.inner_text("#out")
             assert "ADMIN_USER" in body
             assert PASSWORD not in body
-            assert await page.input_value("[name=password]") == "", (
+            assert await page.input_value("[data-field=password]") == "", (
                 "the password must not be left sitting in the form afterwards"
             )
         finally:
@@ -188,3 +222,190 @@ async def test_the_form_works_in_a_real_browser(session, workspace, demo_server)
 
     identities = yaml.safe_load((workspace / "config" / "identities.yaml").read_text())
     assert "ADMIN_USER" in identities["identities"]
+
+
+# --- completing an account that already exists ------------------------------
+# The gap this closes: the page could only ever add a *new* environment and
+# account. An identity already in identities.yaml with no secrets — written by
+# hand, or by a colleague — could not be completed here at all.
+
+
+def _existing_account(workspace, demo_server, *, extras: str = "") -> None:
+    (workspace / "config" / "environments.yaml").write_text(
+        "environments:\n"
+        "  theirs:\n"
+        f"    base_url: {demo_server}\n"
+        "    login:\n"
+        "      path: /login\n"
+        "      username_target: { testid: login-username }\n"
+        "      password_target: { testid: login-password }\n"
+        "      submit_target: { testid: login-submit }\n"
+        "      success_url_contains: /dashboard\n"
+    )
+    (workspace / "config" / "identities.yaml").write_text(
+        "identities:\n"
+        "  THEIR_USER:\n"
+        "    description: An account someone added by hand.\n"
+        "    capabilities: [browse]\n"
+        "    username_ref: secret://theirs/them/username\n"
+        "    password_ref: secret://theirs/them/password\n"
+        f"{extras}"
+        "    environments: [theirs]\n"
+    )
+
+
+def fill(session, alias="THEIR_USER", **fields) -> dict:
+    form = {"t": session.token, "alias": alias, **fields}
+    data = urllib.parse.urlencode(form).encode()
+    with urllib.request.urlopen(f"{session.url.split('?')[0]}fill", data, timeout=120) as r:
+        return json.loads(r.read())
+
+
+def test_an_existing_account_is_listed_as_pending(workspace, demo_server):
+    _existing_account(workspace, demo_server)
+    pending = webui.pending_identities(workspace / "config")
+    assert [p["alias"] for p in pending] == ["THEIR_USER"]
+    assert pending[0]["fields"] == ["username", "password"]
+
+
+def test_extra_login_fields_are_asked_for(workspace, demo_server):
+    """A form wanting a PIN as well must ask for it, or the account stays unusable."""
+    _existing_account(
+        workspace, demo_server, extras="    extra_refs:\n      pin: secret://theirs/them/pin\n"
+    )
+    assert webui.pending_identities(workspace / "config")[0]["fields"] == [
+        "username",
+        "password",
+        "pin",
+    ]
+
+
+def test_filling_an_existing_account_writes_its_secrets(session, workspace, demo_server):
+    _existing_account(workspace, demo_server)
+    result = fill(session, field_username=USERNAME, field_password=PASSWORD)
+    assert result["state"] == "done", result
+    assert result["alias"] == "THEIR_USER"
+
+    written = (workspace / ".env").read_text()
+    assert "QA_SECRET__THEIRS__THEM__USERNAME" in written
+    assert "QA_SECRET__THEIRS__THEM__PASSWORD" in written
+
+
+def test_a_wrong_password_for_an_existing_account_saves_nothing(session, workspace, demo_server):
+    _existing_account(workspace, demo_server)
+    result = fill(session, field_username=USERNAME, field_password="not-the-password")
+    assert result["state"] == "failed"
+    assert not (workspace / ".env").exists()
+
+
+def test_a_missing_extra_field_is_refused(session, workspace, demo_server):
+    _existing_account(
+        workspace, demo_server, extras="    extra_refs:\n      pin: secret://theirs/them/pin\n"
+    )
+    result = fill(session, field_username=USERNAME, field_password=PASSWORD, field_pin="")
+    assert result["state"] == "failed"
+    assert "pin" in result["detail"]
+    assert not (workspace / ".env").exists()
+
+
+def test_extra_fields_are_written_with_their_own_reference(
+    session, workspace, demo_server, monkeypatch
+):
+    """The demo app has no PIN field, so the sign-in check is stubbed; what is
+    under test is that every reference, extras included, reaches the store."""
+    _existing_account(
+        workspace, demo_server, extras="    extra_refs:\n      pin: secret://theirs/them/pin\n"
+    )
+
+    async def signs_in(*_args, **_kwargs) -> str:
+        return ""
+
+    monkeypatch.setattr(webui, "_verify_login", signs_in)
+    result = fill(session, field_username=USERNAME, field_password=PASSWORD, field_pin="4821")
+    assert result["state"] == "done", result
+    written = (workspace / ".env").read_text()
+    assert "QA_SECRET__THEIRS__THEM__PIN" in written
+
+
+def test_the_filled_account_is_usable_without_a_restart(session, workspace, demo_server):
+    """The provider reads os.environ at resolve time, so a running assistant
+    must see the account become usable the moment the page is submitted."""
+    _existing_account(workspace, demo_server)
+    assert webui.pending_identities(workspace / "config")
+    fill(session, field_username=USERNAME, field_password=PASSWORD)
+    assert webui.pending_identities(workspace / "config") == []
+
+
+# --- a form whose fields cannot be guessed ----------------------------------
+
+
+def inspect(session, **fields) -> dict:
+    form = {"t": session.token, "login_path": "/login", **fields}
+    data = urllib.parse.urlencode(form).encode()
+    with urllib.request.urlopen(f"{session.url.split('?')[0]}inspect", data, timeout=120) as r:
+        return json.loads(r.read())
+
+
+def test_inspection_reports_an_ordinary_forms_two_fields(session, demo_server):
+    result = inspect(session, app_url=demo_server)
+    assert result["ok"], result
+    assert [f["name"] for f in result["fields"]] == ["username", "password"]
+
+
+def test_inspection_finds_a_third_credential_and_names_it_as_the_page_does(
+    session, demo_server
+):
+    """The case: nobody declared a PIN, the form was read."""
+    result = inspect(session, app_url=demo_server, login_path="/pin-login")
+    assert result["ok"], result
+    assert [f["name"] for f in result["fields"]] == ["username", "password", "pin"]
+    assert result["fields"][2]["label"] == "2nd Level Passcode"
+    assert result["fields"][2]["kind"] == "password", "an unknown extra field is a secret"
+
+
+def test_a_page_with_no_sign_in_form_is_reported_not_guessed(session, demo_server):
+    result = inspect(session, app_url=demo_server, login_path="/no-such-page")
+    assert not result["ok"]
+    assert result["problems"]
+
+
+def test_a_page_that_redirects_to_the_sign_in_form_still_works(session, demo_server):
+    """Giving the address of a protected page is the obvious mistake to make;
+    following the redirect means it is not a mistake at all."""
+    result = inspect(session, app_url=demo_server, login_path="/dashboard")
+    assert result["ok"], result
+    assert [f["name"] for f in result["fields"]] == ["username", "password"]
+
+
+def test_a_three_field_form_is_set_up_end_to_end(session, workspace, demo_server):
+    """Discovery, sign-in check, config and secrets — all three credentials."""
+    result = submit(
+        session,
+        app_url=demo_server,
+        login_path="/pin-login",
+        environment="pinapp",
+        extra_pin="4821",
+    )
+    assert result["state"] == "done", result
+
+    environments = yaml.safe_load((workspace / "config" / "environments.yaml").read_text())
+    recipe = environments["environments"]["pinapp"]["login"]
+    assert recipe["extra_targets"]["pin"], "the PIN's location must be recorded"
+
+    identities = yaml.safe_load((workspace / "config" / "identities.yaml").read_text())
+    assert identities["identities"]["ADMIN_USER"]["extra_refs"] == {
+        "pin": "secret://pinapp/admin/pin"
+    }
+    assert "QA_SECRET__PINAPP__ADMIN__PIN" in (workspace / ".env").read_text()
+
+
+def test_a_wrong_pin_is_rejected_like_a_wrong_password(session, workspace, demo_server):
+    result = submit(
+        session,
+        app_url=demo_server,
+        login_path="/pin-login",
+        environment="pinapp",
+        extra_pin="0000",
+    )
+    assert result["state"] == "failed"
+    assert not (workspace / ".env").exists()

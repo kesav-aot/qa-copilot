@@ -1,0 +1,10 @@
+<!doctype html><meta charset=utf-8><title>Sign in</title>
+<!-- A form with a third credential, like a bank's second-level PIN. Nobody can
+     declare this in advance; the only way to know is to look at the page. -->
+<form action="/x" method="post">
+  <label for="u">User name</label><input id="u" name="username" type="text">
+  <label for="p">Password</label><input id="p" name="password" type="password">
+  <label for="n">2nd Level Passcode</label><input id="n" name="pin" type="password">
+  <input type="hidden" name="csrf" value="x">
+  <button type="submit">Sign In</button>
+</form>

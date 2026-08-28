@@ -105,6 +105,45 @@ def index():
     return redirect(url_for("dashboard") if "user" in session else url_for("login"))
 
 
+# A second sign-in form that wants a third credential, the way some systems ask for a
+# second-level PIN. It exists so the setup flow can be exercised against a form
+# whose fields cannot be guessed in advance.
+SECOND_LEVEL_PIN = "4821"
+
+
+@app.route("/pin-login", methods=["GET", "POST"])
+def pin_login():
+    error = None
+    if request.method == "POST":
+        email = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        pin = request.form.get("pin") or ""
+        record = USERS.get(email)
+        if (
+            record
+            and secrets.compare_digest(record["password"], password)
+            and secrets.compare_digest(SECOND_LEVEL_PIN, pin)
+        ):
+            session["user"] = {"email": email, "name": record["name"], "role": record["role"]}
+            return redirect(url_for("dashboard"))
+        error = "Invalid username, password or PIN."
+    body = """
+      <h1>Sign in</h1>
+      <form method=post>
+        <label for=username>User name</label>
+        <input id=username name=username autocomplete=username>
+        <label for=password>Password</label>
+        <input id=password name=password type=password autocomplete=current-password>
+        <label for=pin>2nd Level Passcode</label>
+        <input id=pin name=pin type=password autocomplete=off>
+        <input type=hidden name=csrf value=not-a-real-token>
+        <br><button type=submit>Sign In</button>
+      </form>
+      {% if error %}<p class=error data-testid=login-error>{{ error }}</p>{% endif %}
+    """
+    return render("Sign in", body, error=error), (401 if error else 200)
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
