@@ -7,7 +7,7 @@ the executor ever unwraps.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from qa_copilot.config import Config, Identity
 from qa_copilot.secrets.base import SecretProvider, SecretValue
@@ -22,6 +22,7 @@ class Credentials:
     identity: str
     username: SecretValue
     password: SecretValue
+    extras: dict[str, SecretValue] = field(default_factory=dict)
 
 
 class IdentityBroker:
@@ -48,6 +49,7 @@ class IdentityBroker:
 
     def _configured(self, identity: Identity) -> bool:
         refs = [identity.username_ref, identity.password_ref]
+        refs.extend(identity.extra_refs.values())
         return all(r and self.provider.has(r) for r in refs)
 
     # --- resolution -------------------------------------------------------
@@ -84,7 +86,7 @@ class IdentityBroker:
             raise IdentityError(
                 f"identity {identity.alias!r} has no username/password references configured"
             )
-        for ref in (identity.username_ref, identity.password_ref):
+        for ref in (identity.username_ref, identity.password_ref, *identity.extra_refs.values()):
             if not self.provider.has(ref):
                 raise IdentityError(
                     f"secret {ref!r} for identity {identity.alias!r} is not available "
@@ -94,6 +96,10 @@ class IdentityBroker:
             identity=identity.alias,
             username=self.provider.resolve(identity.username_ref),
             password=self.provider.resolve(identity.password_ref),
+            extras={
+                name: self.provider.resolve(ref)
+                for name, ref in identity.extra_refs.items()
+            },
         )
 
     def api_token(self, identity: Identity) -> SecretValue | None:

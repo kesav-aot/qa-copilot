@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -172,18 +173,41 @@ def _desktop_config_path() -> Path:
     return Path.home() / ".config/Claude/claude_desktop_config.json"
 
 
-def _install_desktop(server: dict, force: bool) -> int:
-    """Merge our entry into Claude Desktop's config, keeping everything else."""
+def _antigravity_config_path() -> Path:
+    """Where Antigravity keeps its global MCP settings.
+
+    There is also a per-project ``.agents/mcp_config.json``; this is the one
+    that applies wherever you open the editor.
+    """
+    return Path.home() / ".gemini/config/mcp_config.json"
+
+
+def _install_into(
+    path: Path,
+    server: dict,
+    force: bool,
+    *,
+    host: str,
+    missing: str,
+    after: list[str],
+    create_parent: bool = False,
+) -> int:
+    """Merge our entry into a host's MCP config, keeping everything else.
+
+    Shared by every host we can install into, so a fix to the backup or the
+    corrupt-file handling cannot apply to one and not the others.
+    """
     from datetime import datetime
 
-    path = _desktop_config_path()
     if not path.parent.is_dir():
-        print(
-            f"Claude Desktop's settings folder is not there:\n  {path.parent}\n"
-            f"Install Claude Desktop and open it once, then run this again.",
-            file=sys.stderr,
-        )
-        return 2
+        if create_parent and path.parent.parent.is_dir():
+            path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            print(
+                f"{host}'s settings folder is not there:\n  {path.parent}\n{missing}",
+                file=sys.stderr,
+            )
+            return 2
 
     existing: dict = {}
     if path.is_file():
@@ -199,7 +223,7 @@ def _install_desktop(server: dict, force: bool) -> int:
     servers = existing.setdefault("mcpServers", {})
     if "qa-copilot" in servers and not force:
         print(
-            "Claude Desktop already has a qa-copilot server configured.\n"
+            f"{host} already has a qa-copilot server configured.\n"
             "Re-run with --force to replace it.",
             file=sys.stderr,
         )
@@ -214,13 +238,44 @@ def _install_desktop(server: dict, force: bool) -> int:
     servers["qa-copilot"] = server
     path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
 
-    print(f"Added qa-copilot to Claude Desktop.\n  {path}")
+    print(f"Added qa-copilot to {host}.\n  {path}")
     if backup:
         print(f"  previous settings backed up to {backup.name}")
     print()
-    print("Now quit Claude Desktop completely and reopen it — it only reads this")
-    print("file at startup. Look for the tools icon in the message box.")
+    for line in after:
+        print(line)
     return 0
+
+
+def _install_desktop(server: dict, force: bool) -> int:
+    return _install_into(
+        _desktop_config_path(),
+        server,
+        force,
+        host="Claude Desktop",
+        missing="Install Claude Desktop and open it once, then run this again.",
+        after=[
+            "Now quit Claude Desktop completely and reopen it — it only reads this",
+            "file at startup. Look for the tools icon in the message box.",
+        ],
+    )
+
+
+def _install_antigravity(server: dict, force: bool) -> int:
+    return _install_into(
+        _antigravity_config_path(),
+        server,
+        force,
+        host="Antigravity",
+        missing="Install Antigravity and open it once, then run this again.",
+        after=[
+            "Now reload Antigravity's MCP servers: the … at the top of the agent",
+            "panel → MCP Servers → Manage MCP Servers → refresh. Or restart it.",
+        ],
+        # ~/.gemini exists as soon as Antigravity has run, but the config/
+        # subdirectory is only created when something writes settings.
+        create_parent=True,
+    )
 
 
 def cmd_mcp_config(args) -> int:
@@ -228,11 +283,20 @@ def cmd_mcp_config(args) -> int:
     Desktop or another agent, with absolute paths so it works from any
     directory."""
     root = Path.cwd().resolve()
-    server = root / ".venv" / "bin" / "qa-copilot-mcp"
-    if not server.is_file():
+
+    # Prefer the launcher: it provisions its own Python, so the configuration
+    # this prints also works on a colleague's machine that has never run pip.
+    # Fall back to the virtualenv's entry point for an older checkout.
+    launcher = root / "packaging" / "launcher" / "qa-copilot-launch"
+    venv_server = root / ".venv" / "bin" / "qa-copilot-mcp"
+    if launcher.is_file():
+        server = launcher
+    elif venv_server.is_file():
+        server = venv_server
+    else:
         print(
-            f"{server} does not exist. Run this from the QA Copilot directory, "
-            f"after `python3 -m venv .venv && .venv/bin/pip install -e .`",
+            f"Neither {launcher} nor {venv_server} exists. Run this from the "
+            f"QA Copilot directory.",
             file=sys.stderr,
         )
         return 2
@@ -268,6 +332,28 @@ def cmd_mcp_config(args) -> int:
         print("Then quit Claude Desktop completely and reopen it.")
         return 0
 
+    if args.antigravity:
+        if args.install:
+            return _install_antigravity(config, args.force)
+        path = _antigravity_config_path()
+        print("Connect QA Copilot to Antigravity")
+        print("=" * 33)
+        print()
+        print("Let me do it for you:")
+        print()
+        print("    qa-copilot mcp-config --antigravity --install")
+        print()
+        print(f"Or add this to {path} by hand, under \"mcpServers\":")
+        print()
+        print(json.dumps({"mcpServers": {"qa-copilot": config}}, indent=2))
+        print()
+        print("For one project only, put the same thing in .agents/mcp_config.json")
+        print("inside that project instead.")
+        print()
+        print("Then reload: the … at the top of the agent panel → MCP Servers →")
+        print("Manage MCP Servers. In the CLI, /mcp.")
+        return 0
+
     print("Connect QA Copilot to Claude Code")
     print("=" * 33)
     print()
@@ -285,6 +371,51 @@ def cmd_mcp_config(args) -> int:
     print("        --scope project writes .mcp.json into the current repo, shared")
     print("        with anyone who clones it.")
     return 0
+
+
+def cmd_setup(args) -> int:
+    """Open the setup page in a browser and wait for it to be filled in.
+
+    The same page the `open_setup` MCP tool serves, for someone who would rather
+    start it themselves than ask an assistant to.
+    """
+    import time
+    import webbrowser
+
+    from qa_copilot.config import load_config
+    from qa_copilot.setup import webui
+
+    config_dir = Path(args.config).resolve()
+    config = load_config(config_dir)
+    session = webui.start(
+        config_dir=config_dir,
+        secrets_file=config.dotenv_path or (config_dir.parent / ".env"),
+        work_dir=config_dir.parent,
+        port=args.port,
+    )
+
+    print("Set up QA Copilot in your browser:")
+    print()
+    print(f"    {session.url}")
+    print()
+    print("Nothing you type there is sent anywhere. Press Ctrl-C when you are done.")
+    if not args.no_browser:
+        with contextlib.suppress(Exception):
+            webbrowser.open(session.url)
+
+    try:
+        while not session.expired():
+            status = session.public_status()
+            if status["state"] == "done":
+                print()
+                print(f"Done. Environment {status['environment']!r}, account {status['alias']}.")
+                return 0
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print()
+        return 1
+    print("\nThe setup page timed out. Run this again when you are ready.")
+    return 1
 
 
 def cmd_words(args) -> int:
@@ -588,15 +719,27 @@ def build_parser() -> argparse.ArgumentParser:
     init.set_defaults(func=cmd_init)
 
     mcpc = sub.add_parser(
-        "mcp-config", help="connect this to Claude Code or Claude Desktop"
+        "mcp-config", help="connect this to Claude Code, Claude Desktop or Antigravity"
     )
     mcpc.add_argument("--desktop", action="store_true", help="target Claude Desktop")
     mcpc.add_argument(
-        "--install", action="store_true", help="write the settings (with --desktop)"
+        "--antigravity", action="store_true", help="target Google Antigravity"
+    )
+    mcpc.add_argument(
+        "--install",
+        action="store_true",
+        help="write the settings (with --desktop or --antigravity)",
     )
     mcpc.add_argument("--force", action="store_true", help="replace an existing entry")
     mcpc.add_argument("--json", action="store_true")
     mcpc.set_defaults(func=cmd_mcp_config)
+
+    setup = sub.add_parser(
+        "setup", help="point QA Copilot at an application, in your browser"
+    )
+    setup.add_argument("--port", type=int, default=0, help="fix the port (default: any free one)")
+    setup.add_argument("--no-browser", action="store_true", help="just print the link")
+    setup.set_defaults(func=cmd_setup)
 
     app = sub.add_parser("approve", help="approve a plan for execution (humans only)")
     app.add_argument("fingerprint", nargs="?")

@@ -1,4 +1,4 @@
-# Connect QA Copilot to Claude Code and point it at your product
+# Connect QA Copilot to your editor and point it at your product
 
 Two steps, about ten minutes. Neither involves writing YAML or a selector.
 
@@ -16,6 +16,17 @@ Two steps, about ten minutes. Neither involves writing YAML or a selector.
 
 ```bash
 cd "/path/to/QA Copilot"
+.venv/bin/qa-copilot setup      # fills a form in your browser
+```
+
+or, once it is connected to an assistant, just ask it — *"set up QA Copilot for
+my app"* — and it will open the same page. Nothing about either route requires
+knowing a command; the page signs in once to check the details, then writes the
+configuration and the secret itself.
+
+There is also a terminal wizard, if you prefer questions to a form:
+
+```bash
 .venv/bin/qa-copilot init
 ```
 
@@ -259,6 +270,24 @@ For a non-coding QA engineer, Desktop is the better door. The one thing it does
 not give you is the harness hook that blocks a pasted password before the model
 sees it — on Desktop that protection falls back to the model's own instructions,
 plus the compiler, which still refuses a credential written into a test.
+
+## 2c. Connect it to Antigravity
+
+```bash
+cd "/path/to/QA Copilot"
+.venv/bin/qa-copilot mcp-config --antigravity --install
+```
+
+Merges one entry into `~/.gemini/config/mcp_config.json`, keeping everything
+already in it and writing a timestamped backup first. Reload with the `…` at the
+top of the agent panel → MCP Servers → Manage MCP Servers, or `/mcp` in the CLI.
+
+For a single project, put the same JSON in `.agents/mcp_config.json` inside that
+project instead. To see the settings without writing them, drop `--install`.
+
+Antigravity reads the same skills, rules and agents through
+`.agents/plugins/qa-copilot/`, which symlinks to the directories the Claude
+plugin uses.
 
 ## 3. Check it works
 

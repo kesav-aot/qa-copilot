@@ -8,7 +8,27 @@ Everything below happens in Claude Desktop's own settings window.
 Double-click **`qa-copilot-<version>.mcpb`**, or open Claude Desktop →
 Settings → Extensions and drag the file in.
 
-## 2. Fill in the settings
+## 2. Tell it about your app
+
+You have two ways, and neither is a terminal.
+
+**The easy one — ask.** Install the extension, restart Claude Desktop, then say:
+
+> **Set up QA Copilot for my app.**
+
+It opens a page in your browser. Fill in the address of your app and a test
+account, press the button, and it signs in once to check the details before
+saving anything. Your password goes straight into a local file only you can
+read; the assistant is told the account's nickname — `ADMIN_USER` — and what it
+is allowed to do, never the credential.
+
+Use the same page whenever you want to add another account or another
+environment: just ask again.
+
+**Or fill in the extension's settings**, below, if you would rather do it at
+install time.
+
+## 2b. The extension's settings
 
 Claude Desktop shows a form. Only the last two are secret.
 

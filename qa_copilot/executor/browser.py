@@ -131,6 +131,16 @@ class BrowserSession:
         await username.first.fill(creds.username.reveal())
         password = await _locator(self.page, recipe.password_target)
         await password.first.fill(creds.password.reveal())
+        for name, target in recipe.extra_targets.items():
+            value = creds.extras.get(name)
+            if value is None:
+                raise RuntimeError(
+                    f"the login form for this environment needs a {name!r} value, but "
+                    f"identity {creds.identity!r} has no extra_refs entry for {name!r}"
+                )
+            self._secret_targets.append(target)
+            extra = await _locator(self.page, target)
+            await extra.first.fill(value.reveal())
         submit = await _locator(self.page, recipe.submit_target)
         await submit.first.click()
 

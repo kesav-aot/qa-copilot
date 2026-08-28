@@ -838,6 +838,21 @@ and the credential-guard hook — point Claude at `.claude-plugin/plugin.json`.
 
 ### 7.2 Antigravity
 
+```bash
+.venv/bin/qa-copilot mcp-config --antigravity --install
+```
+
+That merges an entry into `~/.gemini/config/mcp_config.json`, keeping whatever
+is already there and writing a timestamped backup first. Then reload: the `…`
+at the top of the agent panel → MCP Servers → Manage MCP Servers. In the CLI,
+`/mcp`. For one project only, put the same JSON in `.agents/mcp_config.json`
+inside that project.
+
+The command points Antigravity at `packaging/launcher/qa-copilot-launch`, not
+at `.venv/bin/qa-copilot-mcp`. The launcher provisions its own Python, so the
+configuration also works for a colleague who has never run `pip`. The first
+launch takes a few seconds while it does that; later ones are immediate.
+
 `.agents/plugins/qa-copilot/` carries the same skills, rules, agents and hooks by
 symlink, with its own manifest. One core service, two thin manifests.
 

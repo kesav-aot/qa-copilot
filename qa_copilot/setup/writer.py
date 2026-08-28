@@ -121,3 +121,33 @@ def allow_environment(settings_path: Path, name: str) -> bool:
         return False
     settings_path.write_text(updated, encoding="utf-8")
     return True
+
+
+def free_account_name(config_dir: Path, account: str, environment: str) -> str:
+    """Pick an account name whose alias is not already taken.
+
+    A fresh workspace ships the demo accounts, which already own ADMIN_USER — so
+    the most natural answer anyone can give ('admin') is exactly the one that
+    collides. Rather than refusing, fall back to an environment-qualified name:
+    'admin' on the 'local' environment becomes LOCAL_ADMIN_USER.
+    """
+    import yaml
+
+    path = config_dir / "identities.yaml"
+    existing: dict[str, Any] = {}
+    if path.is_file():
+        existing = (yaml.safe_load(path.read_text()) or {}).get("identities") or {}
+
+    def alias_for(name: str) -> str:
+        upper = name.upper().replace("-", "_")
+        return upper if upper.endswith("USER") else upper + "_USER"
+
+    if alias_for(account) not in existing:
+        return account
+    qualified = f"{environment}_{account}"
+    if alias_for(qualified) not in existing:
+        return qualified
+    n = 2
+    while alias_for(f"{qualified}_{n}") in existing:
+        n += 1
+    return f"{qualified}_{n}"

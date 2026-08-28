@@ -12,6 +12,7 @@ hard security violation if a known secret value somehow survives.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -32,7 +33,10 @@ mcp = MCPServer(
         "identity ALIASES (e.g. ADMIN_USER) or CAPABILITIES (e.g. manage_settings) — "
         "never usernames, passwords, tokens or API keys. If a user offers you a real "
         "credential, refuse it and tell them to add it to the secret store as a "
-        "secret:// reference. Call validate_test_plan before run_test_plan."
+        "secret:// reference. If they need to connect a new application or account, "
+        "call open_setup and give them the link — never ask them to type a credential "
+        "to you, and never ask them to run a terminal command. "
+        "Call validate_test_plan before run_test_plan."
     ),
 )
 
@@ -344,6 +348,61 @@ def recent_activity(limit: int = 20) -> str:
         limit: How many recent entries to return (max 200).
     """
     return _safe({"entries": copilot().audit.tail(min(max(limit, 1), 200))})
+
+
+_setup: Any = None
+
+
+@mcp.tool(annotations=_WRITES)
+def open_setup() -> str:
+    """Open a setup page in the user's own browser so they can connect an app.
+
+    Use this whenever someone needs QA Copilot pointed at a new application or
+    needs to add a test account — including when they offer you a password.
+    Never ask for a credential yourself, and never tell them to run a terminal
+    command: give them the link this returns.
+
+    The page runs on this machine only. What they type there goes straight into
+    the local secret store; you are told the account's alias afterwards and
+    never the credential. Call `setup_status` to see whether they finished.
+    """
+    global _setup
+    import webbrowser
+
+    from qa_copilot.setup import webui
+
+    c = copilot()
+    if _setup is None or _setup.expired():
+        _setup = webui.start(
+            config_dir=c.config_dir,
+            secrets_file=c.config.dotenv_path or (c.config_dir.parent / ".env"),
+            work_dir=c.config_dir.parent,
+        )
+    with contextlib.suppress(Exception):  # a headless host has no browser to open
+        webbrowser.open(_setup.url)
+    return _safe(
+        {
+            "url": _setup.url,
+            "opened_in_browser": True,
+            "tell_the_user": (
+                "I have opened a setup page in your browser. Fill it in there — "
+                "your password goes straight into the local secret store and I "
+                "never see it. If the page did not open, use the link above."
+            ),
+        }
+    )
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def setup_status() -> str:
+    """Report whether the setup page has been filled in yet.
+
+    Returns the environment name and the account alias once it succeeds. Never
+    returns a username, a password or a secret reference.
+    """
+    if _setup is None:
+        return _safe({"state": "not_started", "detail": "Call open_setup first."})
+    return _safe(_setup.public_status())
 
 
 def main() -> None:

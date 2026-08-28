@@ -61,6 +61,9 @@ def test_only_the_writing_tools_are_marked_non_read_only():
         "run_test_suite",
         "run_plain_test",
         "save_test_plan",
+        # Writes configuration and the secret store — via a page the human fills
+        # in, not from anything the model passes. It takes no arguments at all.
+        "open_setup",
     }
 
 
@@ -99,3 +102,14 @@ def test_egress_guard_discards_a_leaked_secret(monkeypatch, tmp_path):
     assert "SECURITY_VIOLATION" in out
     assert "leaky-secret-value" not in out
     sanitizer.registry().clear()
+
+
+def test_the_setup_tool_cannot_be_handed_a_credential():
+    """open_setup exists so nobody types a password to the model.
+
+    If it ever grew a parameter, a model could be talked into passing one — so
+    the absence of arguments is the guarantee, and it is worth asserting.
+    """
+    tool = next(t for t in registered_tools() if t.name == "open_setup")
+    properties = (tool.input_schema or {}).get("properties") or {}
+    assert properties == {}, f"open_setup must take no arguments, got {sorted(properties)}"

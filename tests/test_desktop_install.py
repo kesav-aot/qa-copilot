@@ -135,3 +135,60 @@ def test_the_warning_is_macos_only(monkeypatch):
 
     monkeypatch.setattr("sys.platform", "linux")
     assert _tcc_warning(Path.home() / "Documents" / "x") is None
+
+
+# --- Antigravity -----------------------------------------------------------
+# The same merge, so the backup and corrupt-file guarantees cannot hold for one
+# host and quietly not for another.
+
+from qa_copilot.cli import _antigravity_config_path, _install_antigravity
+
+
+@pytest.fixture
+def antigravity(tmp_path, monkeypatch):
+    path = tmp_path / ".gemini" / "config" / "mcp_config.json"
+    path.parent.mkdir(parents=True)
+    monkeypatch.setattr("qa_copilot.cli._antigravity_config_path", lambda: path)
+    return path
+
+
+def test_the_antigravity_config_path_is_the_gemini_one():
+    assert _antigravity_config_path().name == "mcp_config.json"
+    assert str(_antigravity_config_path()).endswith(".gemini/config/mcp_config.json")
+
+
+def test_antigravity_keeps_other_servers(antigravity):
+    antigravity.write_text('{"mcpServers": {"other": {"command": "x"}}}')
+    assert _install_antigravity(SERVER, force=False) == 0
+    servers = json.loads(antigravity.read_text())["mcpServers"]
+    assert set(servers) == {"other", "qa-copilot"}
+
+
+def test_antigravity_an_empty_file_is_not_a_parse_error(antigravity):
+    """Antigravity ships this file zero-length, which json.loads rejects."""
+    antigravity.write_text("")
+    assert _install_antigravity(SERVER, force=False) == 0
+    assert json.loads(antigravity.read_text())["mcpServers"]["qa-copilot"] == SERVER
+
+
+def test_antigravity_creates_the_config_subdirectory(tmp_path, monkeypatch):
+    """~/.gemini exists once Antigravity has run; config/ may not yet."""
+    path = tmp_path / ".gemini" / "config" / "mcp_config.json"
+    (tmp_path / ".gemini").mkdir()
+    monkeypatch.setattr("qa_copilot.cli._antigravity_config_path", lambda: path)
+    assert _install_antigravity(SERVER, force=False) == 0
+    assert path.is_file()
+
+
+def test_antigravity_absent_is_explained_not_created(tmp_path, monkeypatch):
+    path = tmp_path / "nowhere" / "config" / "mcp_config.json"
+    monkeypatch.setattr("qa_copilot.cli._antigravity_config_path", lambda: path)
+    assert _install_antigravity(SERVER, force=False) == 2
+    assert not path.exists()
+
+
+def test_antigravity_an_existing_entry_is_not_replaced_silently(antigravity):
+    antigravity.write_text('{"mcpServers": {"qa-copilot": {"command": "old"}}}')
+    assert _install_antigravity(SERVER, force=False) == 1
+    assert json.loads(antigravity.read_text())["mcpServers"]["qa-copilot"]["command"] == "old"
+    assert _install_antigravity(SERVER, force=True) == 0

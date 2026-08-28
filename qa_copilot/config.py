@@ -32,6 +32,16 @@ class LoginRecipe(Base):
     username_target: Target
     password_target: Target
     submit_target: Target
+    extra_targets: dict[str, Target] = Field(
+        default_factory=dict,
+        description=(
+            "Further credential fields this form demands, keyed by a short name "
+            "such as 'pin'. Each identity supplies the value through a matching "
+            "entry in its extra_refs. Here rather than in the plan, for the same "
+            "reason as the other two: the AI does not choose how a credential is "
+            "typed."
+        ),
+    )
     success_url_contains: str | None = None
     success_target: Target | None = None
     failure_target: Target | None = None
@@ -72,6 +82,13 @@ class Identity(Base):
     capabilities: list[str] = Field(default_factory=list)
     username_ref: str | None = None
     password_ref: str | None = None
+    extra_refs: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "secret:// references for the environment's extra login fields, "
+            "keyed by the same short name the login recipe uses."
+        ),
+    )
     api_token_ref: str | None = None
     environments: list[str] = Field(default_factory=list)
 
