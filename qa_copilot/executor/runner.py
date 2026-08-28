@@ -29,7 +29,7 @@ def safe_dirname(name: str) -> str:
 
 
 _UI_ACTIONS = {
-    "authenticate", "navigate", "click", "fill", "fill_secret",
+    "authenticate", "navigate", "click", "double_click", "fill", "fill_secret",
     "select", "wait_for", "screenshot",
 }
 
@@ -137,6 +137,11 @@ class PlanRunner:
                             artifacts.append(shot)
                             failure["screenshot"] = shot
                             failure["page"] = await session.snapshot(max_chars=1_500)
+                            # A step that "worked" but changed nothing is often a
+                            # JavaScript error the page swallowed.
+                            console = session.console_errors()
+                            if console:
+                                failure["console_errors"] = console
                         except Exception:
                             pass
                     break
@@ -209,6 +214,15 @@ class PlanRunner:
                     f"now working in {popup_url}"
                 ), None
             return f"clicked {step.target.summary()}", None
+
+        if action == "double_click":
+            popup_url = await session.double_click(step.target)  # type: ignore[union-attr]
+            if popup_url:
+                return (
+                    f"double-clicked {step.target.summary()} — it opened a window, "
+                    f"now working in {popup_url}"
+                ), None
+            return f"double-clicked {step.target.summary()}", None
 
         if action == "fill":
             await session.fill(step.target, step.value)  # type: ignore[union-attr]

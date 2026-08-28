@@ -123,6 +123,13 @@ class Click(Base):
     target: Target
 
 
+class DoubleClick(Base):
+    """Some grids only respond to dblclick; a single click silently does nothing."""
+
+    action: Literal["double_click"]
+    target: Target
+
+
 class Fill(Base):
     action: Literal["fill"]
     target: Target
@@ -216,6 +223,7 @@ Step = Annotated[
         Authenticate,
         Navigate,
         Click,
+        DoubleClick,
         Fill,
         FillSecret,
         Select,

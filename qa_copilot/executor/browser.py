@@ -48,9 +48,30 @@ class BrowserSession:
     authenticated_as: str | None = None
     _secret_targets: list[Target] = field(default_factory=list)
     _new_pages: list["Page"] = field(default_factory=list)
+    _console: list[str] = field(default_factory=list)
     _window_stack: list["Page"] = field(default_factory=list)
 
     # --- windows the app opens itself -------------------------------------
+    def watch_console(self) -> None:
+        """Keep the page's errors, so a step that failed for a JavaScript reason
+        can say so instead of only reporting the symptom."""
+        def record(kind: str, text: str) -> None:
+            line = f"{kind}: {(text or '').strip()[:200]}"
+            self._console.append(line)
+            del self._console[:-40]  # keep the tail; early noise is rarely the cause
+
+        try:
+            self.page.context.on(
+                "console",
+                lambda msg: record(msg.type, msg.text) if msg.type in ("error", "warning") else None,
+            )
+            self.page.context.on("pageerror", lambda err: record("pageerror", str(err)))
+        except Exception:
+            pass
+
+    def console_errors(self) -> list[str]:
+        return [line for line in self._console if line.startswith(("error", "pageerror"))][-10:]
+
     def watch_for_popups(self) -> None:
         """Record every window the application opens.
 
@@ -107,6 +128,11 @@ class BrowserSession:
     async def click(self, target: Target, timeout_ms: int = 10_000) -> str | None:
         locator = await _locator(self.page, target)
         await locator.first.click(timeout=timeout_ms)
+        return await self._follow_popup()
+
+    async def double_click(self, target: Target, timeout_ms: int = 10_000) -> str | None:
+        locator = await _locator(self.page, target)
+        await locator.first.dblclick(timeout=timeout_ms)
         return await self._follow_popup()
 
     async def fill(self, target: Target, value: str, timeout_ms: int = 10_000) -> None:
@@ -325,4 +351,5 @@ async def open_session(
         artifact_dir=artifact_dir,
     )
     session.watch_for_popups()
+    session.watch_console()
     return session

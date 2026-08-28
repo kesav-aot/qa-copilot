@@ -139,13 +139,28 @@ def parse_phrase(text: str, index: int | None = None) -> Phrase:
 
 # --- candidate generation --------------------------------------------------
 
-def _scope(page: "Page", within: str | None):
-    """Narrow to the table row / list item / card containing some text."""
+_ROW_SELECTOR = "tr, li, [role=row], [role=listitem], article, section, .row, .card"
+
+
+async def _scope(page: "Page", within: str | None):
+    """Narrow to the table row / list item / card containing some text.
+
+    Rows nest: a <tr> holding an inner table contains every inner row's text, so
+    a plain contains-text match also selects the ancestor — and scoping to that
+    silently widens the search back to the whole table, which is the opposite of
+    what the author asked for. Prefer the innermost match: a container with no
+    matching container inside it.
+    """
     if not within:
         return page
-    return page.locator(
-        "tr, li, [role=row], [role=listitem], article, section, .row, .card"
-    ).filter(has_text=within)
+    rows = page.locator(_ROW_SELECTOR).filter(has_text=within)
+    innermost = rows.filter(has_not=page.locator(_ROW_SELECTOR).filter(has_text=within))
+    try:
+        if await innermost.count() > 0:
+            return innermost
+    except Exception:
+        pass
+    return rows
 
 
 def _icon_strategies(root, name: str) -> list[tuple[str, Any]]:
@@ -374,13 +389,40 @@ def format_inventory(grouped: dict[str, list[str]]) -> str:
 # --- the entry point --------------------------------------------------------
 
 async def resolve(page: "Page", target: Target) -> "Locator":
-    """Turn a Target into exactly one Playwright locator, or explain why not."""
+    """Turn a Target into exactly one Playwright locator, or explain why not.
+
+    Searches the main document first, then any iframes. Apps that render a
+    document or editor in a frame are otherwise invisible: the element is on
+    screen, the person can see it, and the tool insists it does not exist.
+    """
     # Precise targets stay precise — no guessing when the author was specific.
     if not target.describe:
         return _explicit(page, target)
 
+    try:
+        return await _resolve_within(page, target)
+    except ElementNotFound as not_in_main:
+        try:
+            frames = [f for f in page.frames if f is not page.main_frame]
+        except Exception:
+            frames = []
+        for frame in frames:
+            try:
+                return await _resolve_within(frame, target)
+            except ResolutionError:
+                continue  # ambiguity inside a frame is still that frame's problem
+        if frames:
+            raise ElementNotFound(
+                f"{not_in_main}\n\n  I also looked inside {len(frames)} iframe(s) "
+                f"on this page and did not find it there either."
+            ) from not_in_main
+        raise
+
+
+async def _resolve_within(page: "Page", target: Target) -> "Locator":
+    """Resolve against one document — the main page, or a single frame."""
     phrase = parse_phrase(target.describe, target.index)
-    root = _scope(page, target.within)
+    root = await _scope(page, target.within)
 
     if target.within:
         try:

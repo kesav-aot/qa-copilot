@@ -613,6 +613,32 @@ RULES: list[Rule] = [
         "Toggle a checkbox. ('Tick' is clearer — 'check' also starts an assertion.)",
         ['Check the "Remember me" checkbox'],
     ),
+    # --- double-clicking (before plain clicking) ------------------------
+    Rule(
+        "double click in named row", "Clicking",
+        re.compile(
+            r"(?i)^(?:double[-\s]?click|dbl[-\s]?click)\s+(?:on\s+)?(?P<what>.+?)\s+"
+            r"(?:in|on|of|from|within)\s+(?:the\s+)?(?P<within>.+?)\s+row" + END
+        ),
+        lambda m, ctx: Built(
+            steps=[{"action": "double_click", "target": _target(m)}],
+            explain=f"double-click {_target(m)['describe']} in the '{unquote(m.group('within'))}' row",
+        ),
+        "Double-click something inside a particular row.",
+        ['Double-click "ln1, fn1" in the URGENT row'],
+    ),
+    Rule(
+        "double click", "Clicking",
+        re.compile(
+            r"(?i)^(?:double[-\s]?click|dbl[-\s]?click)\s+(?:on\s+)?(?P<what>.+?)" + END
+        ),
+        lambda m, ctx: Built(
+            steps=[{"action": "double_click", "target": {"describe": unquote(m.group("what"))}}],
+            explain=f'double-click {unquote(m.group("what"))}',
+        ),
+        "Double-click something. Needed for grids and rows that ignore a single click.",
+        ['Double-click the "ln1, fn1" row', "Double-click the first row"],
+    ),
     # --- clicking (last: the most generic)
     Rule(
         "click quoted", "Clicking",
