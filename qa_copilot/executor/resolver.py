@@ -91,7 +91,8 @@ _FRIENDLY_TAG = {
 }
 
 _MAX_CANDIDATES_DESCRIBED = 6
-_INVENTORY_LIMIT = 40
+_INVENTORY_LIMIT = 400   # elements scanned
+_INVENTORY_PER_KIND = 12  # shown per kind
 
 
 @dataclass
@@ -302,7 +303,7 @@ async def page_inventory(page: "Page") -> dict[str, list[str]]:
             """() => {
                 const seen = new Set();
                 const out = [];
-                const sel = 'a,button,input,select,textarea,[role=button],[role=link],[role=tab],h1,h2,h3,img[onclick],img[role=button]';
+                const sel = 'a,button,input,select,textarea,[role=button],[role=link],[role=tab],h1,h2,h3,img';
                 // An icon carries no text. Name it by alt/title, else by its filename.
                 const iconName = (el) => {
                     const img = el.tagName.toLowerCase() === 'img' ? el : el.querySelector('img');
@@ -354,7 +355,9 @@ async def page_inventory(page: "Page") -> dict[str, list[str]]:
         entry = f'"{item["label"]}"'
         if item.get("testid"):
             entry += f'  [test id: {item["testid"]}]'
-        grouped.setdefault(item["kind"], []).append(entry)
+        entries = grouped.setdefault(item["kind"], [])
+        if len(entries) < _INVENTORY_PER_KIND:
+            entries.append(entry)
     return grouped
 
 
@@ -364,7 +367,7 @@ def format_inventory(grouped: dict[str, list[str]]) -> str:
     lines = []
     for kind in sorted(grouped):
         lines.append(f"  {kind}s you can use here:")
-        lines.extend(f"    - {entry}" for entry in grouped[kind][:12])
+        lines.extend(f"    - {entry}" for entry in grouped[kind][:_INVENTORY_PER_KIND])
     return "\n".join(lines)
 
 
