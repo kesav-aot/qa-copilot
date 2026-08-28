@@ -62,7 +62,7 @@ _ROLE_WORDS: list[tuple[str, str]] = [
     ("option", "option"),
     ("row", "row"),
     ("image", "img"),
-    ("icon", "button"),
+    ("icon", "icon"),
     ("box", "textbox"),
 ]
 
@@ -91,7 +91,7 @@ _FRIENDLY_TAG = {
 }
 
 _MAX_CANDIDATES_DESCRIBED = 6
-_INVENTORY_LIMIT = 25
+_INVENTORY_LIMIT = 40
 
 
 @dataclass
@@ -147,6 +147,27 @@ def _scope(page: "Page", within: str | None):
     ).filter(has_text=within)
 
 
+def _icon_strategies(root, name: str) -> list[tuple[str, Any]]:
+    """Match an icon by its alt text, title, or image filename.
+
+    Icon-only controls carry no text, so every text- and role-based strategy
+    misses them. The image filename is the last resort and is often the only
+    human-meaningful name an icon has (``robot.png`` → "robot").
+    """
+    safe = name.replace("\\", "").replace('"', "")
+    if not safe:
+        return []
+    img = f'img[alt*="{safe}" i], img[title*="{safe}" i], img[src*="{safe}" i]'
+    # Clicking the image works whether or not a link wraps it — the event bubbles.
+    wrapper = ", ".join(
+        f"{tag}:has({img})" for tag in ("a", "button", "[role=button]", "[onclick]")
+    )
+    return [
+        ("icon image", root.locator(img)),
+        ("clickable icon", root.locator(wrapper)),
+    ]
+
+
 def _strategies(root, phrase: Phrase) -> list[tuple[str, "Locator"]]:
     """Ordered attempts. Earlier entries are more trustworthy.
 
@@ -164,6 +185,14 @@ def _strategies(root, phrase: Phrase) -> list[tuple[str, "Locator"]]:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     out.append(("test id", root.get_by_test_id(slug)))
 
+    if phrase.role == "icon":
+        # Superset of the old behaviour, which treated every icon as a button.
+        out.extend(_icon_strategies(root, name))
+        out.append(("button named", root.get_by_role("button", name=name)))
+        out.append(("link named", root.get_by_role("link", name=name)))
+        out.append(("title/alt", root.get_by_title(name)))
+        return out
+
     if phrase.role:
         out.append((f"{phrase.role} named exactly", root.get_by_role(phrase.role, name=name, exact=True)))
         out.append((f"{phrase.role} named", root.get_by_role(phrase.role, name=name)))
@@ -179,6 +208,7 @@ def _strategies(root, phrase: Phrase) -> list[tuple[str, "Locator"]]:
     out.append(("exact text", root.get_by_text(name, exact=True)))
     out.append(("title/alt", root.get_by_title(name)))
     out.append(("text", root.get_by_text(name)))
+    out.extend(_icon_strategies(root, name))
     return out
 
 
@@ -224,9 +254,18 @@ async def _describe_element(locator: "Locator") -> str:
         info = await locator.evaluate(
             """el => {
                 const row = el.closest('tr, li, [role=row], [role=listitem]');
-                const label = (el.innerText || el.value || el.getAttribute('aria-label')
+                let label = (el.innerText || el.value || el.getAttribute('aria-label')
                                || el.getAttribute('placeholder') || el.getAttribute('title')
                                || '').trim().replace(/\\s+/g, ' ').slice(0, 50);
+                if (!label) {
+                    const img = el.tagName.toLowerCase() === 'img' ? el : el.querySelector('img');
+                    if (img) {
+                        const src = img.getAttribute('src') || '';
+                        label = (img.getAttribute('alt') || img.getAttribute('title') || '').trim()
+                                || ((src.split('/').pop() || '').split('?')[0]
+                                    .replace(/\\.(png|gif|jpe?g|svg|webp)$/i, ''));
+                    }
+                }
                 return {
                     tag: el.tagName.toLowerCase(),
                     type: el.getAttribute('type'),
@@ -263,7 +302,18 @@ async def page_inventory(page: "Page") -> dict[str, list[str]]:
             """() => {
                 const seen = new Set();
                 const out = [];
-                const sel = 'a,button,input,select,textarea,[role=button],[role=link],[role=tab],h1,h2,h3';
+                const sel = 'a,button,input,select,textarea,[role=button],[role=link],[role=tab],h1,h2,h3,img[onclick],img[role=button]';
+                // An icon carries no text. Name it by alt/title, else by its filename.
+                const iconName = (el) => {
+                    const img = el.tagName.toLowerCase() === 'img' ? el : el.querySelector('img');
+                    if (!img) return '';
+                    const named = (img.getAttribute('alt') || img.getAttribute('title') || '').trim();
+                    if (named) return named;
+                    const src = img.getAttribute('src') || '';
+                    const file = (src.split('/').pop() || '').split('?')[0]
+                                 .replace(/\\.(png|gif|jpe?g|svg|webp)$/i, '');
+                    return file ? 'icon: ' + file : '';
+                };
                 for (const el of Array.from(document.querySelectorAll(sel))) {
                     const style = window.getComputedStyle(el);
                     if (style.display === 'none' || style.visibility === 'hidden') continue;
@@ -277,10 +327,15 @@ async def page_inventory(page: "Page") -> dict[str, list[str]]:
                     else if (tag === 'input' || tag === 'textarea') kind = type === 'checkbox'
                         ? 'checkbox' : (type === 'password' ? 'password field' : 'field');
                     else if (/^h[1-3]$/.test(tag)) kind = 'heading';
-                    const label = (el.innerText || el.getAttribute('aria-label')
+                    if (tag === 'img') kind = 'icon';
+                    let label = (el.innerText || el.getAttribute('aria-label')
                                    || el.getAttribute('placeholder') || el.getAttribute('name')
                                    || el.getAttribute('title') || '').trim()
                                   .replace(/\\s+/g, ' ').slice(0, 45);
+                    if (!label) {
+                        label = iconName(el);
+                        if (label) kind = 'icon';
+                    }
                     if (!label) continue;
                     const testid = el.getAttribute('data-testid');
                     const key = kind + '|' + label;
@@ -309,7 +364,7 @@ def format_inventory(grouped: dict[str, list[str]]) -> str:
     lines = []
     for kind in sorted(grouped):
         lines.append(f"  {kind}s you can use here:")
-        lines.extend(f"    - {entry}" for entry in grouped[kind][:8])
+        lines.extend(f"    - {entry}" for entry in grouped[kind][:12])
     return "\n".join(lines)
 
 
