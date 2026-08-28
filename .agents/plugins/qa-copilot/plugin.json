@@ -1,0 +1,15 @@
+{
+  "name": "qa-copilot",
+  "version": "0.1.0",
+  "description": "Secret-blind QA automation for Antigravity. Shares one core service with the Claude plugin; only this manifest differs.",
+  "skills": [
+    "skills/qa-write-test",
+    "skills/qa-generate-test",
+    "skills/qa-automate-test-case",
+    "skills/qa-run-test",
+    "skills/qa-analyze-failure"
+  ],
+  "rules": ["rules/security.md"],
+  "agents": ["agents/test-designer.md", "agents/test-executor.md", "agents/failure-analyst.md"],
+  "mcp": "mcp_config.json"
+}

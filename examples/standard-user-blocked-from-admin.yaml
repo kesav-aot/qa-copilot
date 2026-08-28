@@ -1,0 +1,27 @@
+# Authorization boundary check, expressed by capability rather than by alias.
+version: 1
+name: Standard user cannot reach user management
+environment: demo
+risk: low
+tags: [authz, negative]
+
+steps:
+  - action: authenticate
+    capability: create_order
+
+  - action: navigate
+    path: /users
+
+  - action: assert
+    kind: visible
+    target: { testid: forbidden-heading }
+
+  - action: assert
+    kind: not_visible
+    target: { testid: users-heading }
+
+  - action: api_request
+    identity: STANDARD_USER
+    method: GET
+    path: /api/users
+    expect_status: 403

@@ -1,0 +1,25 @@
+# Low risk: read-only. Runs without human approval.
+version: 1
+name: Admin can reach user management
+description: The canonical MVP demo — login happens without the model ever seeing a credential.
+environment: demo
+risk: low
+tags: [smoke, authz]
+
+steps:
+  - action: authenticate
+    identity: ADMIN_USER
+
+  - action: navigate
+    path: /users
+
+  - action: assert
+    kind: visible
+    target: { testid: users-heading }
+
+  - action: assert
+    kind: text
+    expected: User Management
+
+  - action: screenshot
+    name: user-management

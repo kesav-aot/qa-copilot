@@ -1,0 +1,91 @@
+{
+  "manifest_version": "0.3",
+  "name": "qa-copilot",
+  "display_name": "QA Copilot",
+  "version": "0.1.0",
+  "description": "Plain-English test automation that never shows your passwords to the AI.",
+  "long_description": "QA Copilot lets you describe a test in ordinary English — no selectors, no YAML, no code — and runs it against your web application in a real browser.\n\nThe model decides *what* to test and *who* to test as. It never learns a credential. Accounts are referred to by alias (ADMIN_USER) or by capability (manage_users); a trusted local layer resolves those into real values microseconds before typing them into the browser, and scrubs everything on the way back.\n\nThe password you enter below is stored by Claude Desktop in your operating system's credential store and handed to the local test runner as an environment variable. It is never sent to the model.",
+  "author": {
+    "name": "QA Copilot"
+  },
+  "keywords": ["qa", "testing", "automation", "playwright", "browser"],
+  "server": {
+    "type": "binary",
+    "entry_point": "bin/qa-copilot-launch",
+    "mcp_config": {
+      "command": "${__dirname}/bin/qa-copilot-launch",
+      "args": [],
+      "env": {
+        "QA_COPILOT_BUNDLE": "${__dirname}",
+        "QA_COPILOT_HOME": "${user_config.workspace_dir}",
+        "QA_COPILOT_APP_URL": "${user_config.app_url}",
+        "QA_COPILOT_ENV_NAME": "${user_config.environment_name}",
+        "QA_COPILOT_LOGIN_PATH": "${user_config.login_path}",
+        "QA_COPILOT_ACCOUNT": "${user_config.account_name}",
+        "QA_COPILOT_CAPABILITIES": "${user_config.capabilities}",
+        "QA_COPILOT_USERNAME": "${user_config.username}",
+        "QA_COPILOT_PASSWORD": "${user_config.password}"
+      }
+    }
+  },
+  "user_config": {
+    "workspace_dir": {
+      "type": "directory",
+      "title": "Workspace folder",
+      "description": "Where your tests, screenshots and configuration are kept. You can open this folder in Finder to read and edit your test files.",
+      "default": "${HOME}/QA Copilot",
+      "required": false
+    },
+    "app_url": {
+      "type": "string",
+      "title": "Web address of the app you want to test",
+      "description": "For an app running on your own machine this is usually http://localhost:3000. Leave blank to explore the built-in demo app first.",
+      "required": false
+    },
+    "environment_name": {
+      "type": "string",
+      "title": "Name for this environment",
+      "description": "A short name you will use in tests, like 'local' or 'qa'. Anything called production, prod or live is refused.",
+      "default": "local",
+      "required": false
+    },
+    "login_path": {
+      "type": "string",
+      "title": "Path to the sign-in page",
+      "description": "The part of the address after the host, e.g. /login or /signin.",
+      "default": "/login",
+      "required": false
+    },
+    "account_name": {
+      "type": "string",
+      "title": "Short name for the test account",
+      "description": "Used to build the alias the AI sees. 'admin' becomes ADMIN_USER.",
+      "default": "admin",
+      "required": false
+    },
+    "capabilities": {
+      "type": "string",
+      "title": "What this account is allowed to do",
+      "description": "Comma separated. Choose from: browse, manage_users, manage_settings, create_order. Tests ask for accounts by these words rather than by name, so they keep working when accounts are renamed.",
+      "default": "browse, manage_users",
+      "required": false
+    },
+    "username": {
+      "type": "string",
+      "title": "Username or email for the test account",
+      "description": "Use a dedicated test account, never a personal or production login.",
+      "required": false
+    },
+    "password": {
+      "type": "string",
+      "title": "Password for the test account",
+      "description": "Stored in your operating system's credential store by Claude Desktop, and written to a local secrets file that is kept out of version control. It is never sent to the model.",
+      "sensitive": true,
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "linux"]
+  }
+}

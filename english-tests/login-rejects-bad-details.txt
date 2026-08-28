@@ -1,0 +1,8 @@
+# Signing in with the wrong details is refused
+Tags: authz, negative
+
+Go to /login
+Type "nobody@example.invalid" into the Email field
+Click the Sign in button
+Check the page shows "Invalid username or password."
+Check I should not see the Dashboard link

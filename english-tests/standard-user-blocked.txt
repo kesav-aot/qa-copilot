@@ -1,0 +1,7 @@
+# Standard user cannot manage users
+
+Log in as a standard user
+Go to /users
+Verify "Access denied" is displayed
+Check I should not see the Disable button
+Call GET /api/users as a standard user, expecting 403

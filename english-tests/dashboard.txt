@@ -1,0 +1,7 @@
+# Signed-in user sees the dashboard
+Tags: smoke
+
+Log in as a standard user
+Go to /dashboard
+Check the page shows "Dashboard"
+Check the page shows "Orders today"

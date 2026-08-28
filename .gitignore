@@ -1,0 +1,32 @@
+# Secrets. The whole point of this project is that these never travel.
+.env
+secrets.enc.yaml
+
+# Per-machine run state: the audit log and the approval records. Approvals are
+# deliberately local — an approval that could be committed could be shipped.
+.qa-copilot/
+
+# Test output. Screenshots may show whatever was on the page at the time.
+artifacts/
+
+# Anything the setup wizard writes into the working directory for the person
+# who ran it.
+my-first-test.txt
+
+# Build output.
+dist/
+build/
+*.egg-info/
+
+# Python and virtualenvs.
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# macOS.
+.DS_Store

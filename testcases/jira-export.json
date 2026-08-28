@@ -1,0 +1,22 @@
+{
+  "issues": [
+    {
+      "key": "QA-4417",
+      "fields": {
+        "summary": "Disabled users cannot sign in",
+        "description": "Preconditions:\n- A user account exists and has been disabled.\n\nSteps:\n1. Navigate to the Login page\n2. Attempt to sign in as the disabled user\n3. Verify the error \"Invalid username or password.\" is displayed\n\nExpected results:\n- Sign in is refused\n",
+        "labels": ["authz", "regression"],
+        "priority": { "name": "High" }
+      }
+    },
+    {
+      "key": "QA-4418",
+      "fields": {
+        "summary": "Order export completes",
+        "description": "Steps:\n1. Navigate to the Reports page\n2. Click the Export button\n3. Check the emailed file is correct\n\nExpected results:\n- The export works properly\n",
+        "labels": ["reports"],
+        "priority": { "name": "Low" }
+      }
+    }
+  ]
+}

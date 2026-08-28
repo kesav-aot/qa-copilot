@@ -1,0 +1,6 @@
+Test ID,Summary,Preconditions,Steps,Expected Result,Labels,Priority
+TC-2001,Dashboard shows the order count,Logged in as a standard user,"1. Navigate to the Dashboard page
+2. Verify the text ""Orders today"" is displayed","The dashboard shows ""Orders today""",smoke,High
+TC-2002,Signed-out visitor is sent to the login page,None,"1. Navigate to the Dashboard page","The URL contains /login",authz,Medium
+TC-2003,Admin API lists users,Logged in as an administrator,"1. Call GET /api/users
+2. Verify the response status is 200","The response status is 200",api,Low

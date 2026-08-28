@@ -1,0 +1,7 @@
+# Admin can reach user management
+Tags: smoke, authz
+
+Log in as an admin
+Go to /users
+Check the page shows "User Management"
+Take a screenshot called "user list"

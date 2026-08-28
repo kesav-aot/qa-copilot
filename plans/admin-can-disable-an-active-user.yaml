@@ -1,0 +1,22 @@
+version: 1
+name: Admin can disable an active user
+environment: demo
+risk: low
+tags:
+- users
+- destructive
+steps:
+- action: authenticate
+  capability: manage_users
+- action: navigate
+  path: /users
+- action: click
+  target:
+    testid: disable-user-1
+- action: assert
+  kind: visible
+  target:
+    testid: user-status-1
+- action: assert
+  kind: text
+  expected: disabled

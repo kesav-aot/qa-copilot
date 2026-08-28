@@ -1,0 +1,6 @@
+# Only admins can list users through the API
+Tags: api, authz
+Description: Covers the authorisation boundary on /api/users.
+
+Call GET /api/users as an admin, expecting 200
+Call GET /api/users as a standard user, expecting 403

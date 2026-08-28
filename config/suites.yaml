@@ -1,0 +1,12 @@
+# Named collections of plans from the library, run together by
+# `qa-copilot suite run <name>` or the run_test_suite MCP tool.
+#
+# Values are plan slugs — the filename in plans/ without the .yaml.
+
+suites:
+  smoke:
+    - admin-can-reach-user-management
+
+  authz:
+    - admin-can-reach-user-management
+    - standard-user-cannot-reach-user-management

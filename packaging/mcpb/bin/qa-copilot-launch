@@ -1,0 +1,122 @@
+#!/bin/sh
+# QA Copilot launcher for a Claude Desktop extension (.mcpb).
+#
+# Claude Desktop speaks MCP to this process over stdin/stdout, so STDOUT IS THE
+# PROTOCOL CHANNEL. Every diagnostic here goes to stderr; a stray echo would
+# corrupt the stream and the extension would fail with an unhelpful parse error.
+#
+# The job: turn a machine with no Python toolchain into one that can run the
+# test executor, without the QA engineer opening a terminal. Each stage is
+# idempotent and leaves a marker, so an interrupted first run (Desktop gives a
+# server a limited window to start) resumes rather than restarting.
+
+set -eu
+
+log() { printf 'qa-copilot: %s\n' "$*" >&2; }
+die() { log "$*"; exit 1; }
+
+# Claude Desktop leaves ${user_config.x} unsubstituted when the field is blank.
+# Treat a leftover placeholder as "not set" rather than as a literal value.
+clean() {
+    case "${1:-}" in
+        *'${'*) printf '' ;;
+        *) printf '%s' "${1:-}" ;;
+    esac
+}
+
+BUNDLE=$(clean "${QA_COPILOT_BUNDLE:-}")
+if [ -z "$BUNDLE" ]; then
+    BUNDLE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+fi
+[ -d "$BUNDLE/src" ] || die "bundle looks incomplete: no src/ under $BUNDLE"
+
+HOME_DIR=$(clean "${QA_COPILOT_HOME:-}")
+[ -n "$HOME_DIR" ] || HOME_DIR="$HOME/.qa-copilot"
+mkdir -p "$HOME_DIR"
+
+RUNTIME="$HOME_DIR/runtime"
+VENV="$RUNTIME/venv"
+PY="$VENV/bin/python"
+STAMP="$RUNTIME/installed-version"
+VERSION=$(cat "$BUNDLE/VERSION" 2>/dev/null || echo unknown)
+
+# --- 1. uv ------------------------------------------------------------------
+# uv provisions its own CPython, which is the point: the Python that ships with
+# macOS is 3.9 and this package needs 3.11+. Asking a QA engineer to fix that
+# by hand is exactly the barrier this bundle exists to remove.
+# Where the installer drops the binary has moved between uv releases, so look
+# in both places rather than pinning one and breaking on the next release.
+find_uv() {
+    for candidate in "$RUNTIME/bin/uv" "$RUNTIME/uv"; do
+        if [ -x "$candidate" ]; then printf '%s' "$candidate"; return 0; fi
+    done
+    command -v uv 2>/dev/null || true
+}
+
+UV=$(find_uv)
+if [ -z "$UV" ]; then
+    log "first run: fetching the uv runtime installer (a few seconds)"
+    mkdir -p "$RUNTIME/bin"
+    command -v curl >/dev/null 2>&1 \
+        || die "curl is required for first-time setup and was not found."
+    UV_UNMANAGED_INSTALL="$RUNTIME/bin" \
+        sh -c "$(curl -LsSf https://astral.sh/uv/install.sh)" >&2 \
+        || die "could not install uv. Check your network or proxy settings."
+    UV=$(find_uv)
+    [ -n "$UV" ] || die "uv did not install under $RUNTIME"
+fi
+
+# --- 2. interpreter + dependencies -----------------------------------------
+if [ ! -x "$PY" ]; then
+    log "first run: preparing a private Python 3.12 (about a minute)"
+    "$UV" venv --python 3.12 "$VENV" >&2 || die "could not create the Python environment"
+fi
+
+if [ ! -f "$STAMP" ] || [ "$(cat "$STAMP")" != "$VERSION" ]; then
+    log "installing QA Copilot $VERSION"
+    "$UV" pip install --python "$PY" --quiet "$BUNDLE/src" >&2 \
+        || die "could not install QA Copilot's dependencies"
+    printf '%s' "$VERSION" > "$STAMP"
+fi
+
+# --- 3. workspace -----------------------------------------------------------
+# Config lives in the workspace, never in the bundle: the bundle is replaced on
+# every upgrade and would take the QA engineer's accounts with it.
+CONFIG_DIR="$HOME_DIR/config"
+STATE_DIR="$HOME_DIR/state"
+mkdir -p "$STATE_DIR" "$HOME_DIR/tests" "$HOME_DIR/artifacts"
+if [ ! -d "$CONFIG_DIR" ]; then
+    log "creating your workspace at $HOME_DIR"
+    cp -R "$BUNDLE/config-defaults" "$CONFIG_DIR"
+fi
+
+export QA_COPILOT_CONFIG="$CONFIG_DIR"
+export QA_COPILOT_STATE="$STATE_DIR"
+export QA_COPILOT_HOME="$HOME_DIR"
+
+# --- 4. point it at the QA engineer's app ----------------------------------
+# Only when they filled in the settings, and only once per environment. This is
+# the stage that needs a browser, so it is also the slow one.
+APP_URL=$(clean "${QA_COPILOT_APP_URL:-}")
+ENV_NAME=$(clean "${QA_COPILOT_ENV_NAME:-}")
+[ -n "$ENV_NAME" ] || ENV_NAME="local"
+PROVISIONED="$RUNTIME/provisioned-$ENV_NAME"
+
+if [ -n "$APP_URL" ] && [ ! -f "$PROVISIONED" ]; then
+    if [ ! -d "${PLAYWRIGHT_BROWSERS_PATH:-$HOME/Library/Caches/ms-playwright}" ]; then
+        log "first run: downloading the test browser (about 500 MB, one time)"
+    fi
+    "$PY" -m playwright install chromium >&2 \
+        || log "the browser download did not finish; it will be retried next time"
+    log "looking at $APP_URL to find its sign-in form"
+    if "$PY" "$BUNDLE/bootstrap/provision.py" >&2; then
+        : > "$PROVISIONED"
+        log "ready: environment '$ENV_NAME' is configured"
+    else
+        log "could not finish setup for '$ENV_NAME' — the tools still work against"
+        log "the demo app. Fix the settings in Claude Desktop and restart it."
+    fi
+fi
+
+# --- 5. serve ---------------------------------------------------------------
+exec "$VENV/bin/qa-copilot-mcp"
