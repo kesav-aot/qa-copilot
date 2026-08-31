@@ -67,3 +67,25 @@ def test_the_bundle_carries_both_launchers_and_the_manifest(bundle):
 def test_the_launcher_stays_executable_through_the_zip(bundle):
     mode = bundle.getinfo("bin/qa-copilot-launch").external_attr >> 16
     assert mode & 0o111, "a launcher without the executable bit fails at install time"
+
+
+def test_the_release_check_runs_with_only_the_standard_library():
+    """The first release failed here: the check imported PyYAML, which a bare
+    runner does not have. The build itself is stdlib-only, and the gate in
+    front of publishing has to be too, or it is a dependency on CI luck."""
+    source = (ROOT / "scripts" / "check_mcpb.py").read_text()
+    for banned in ("import yaml", "import requests", "from yaml"):
+        assert banned not in source, f"check_mcpb.py must not {banned}"
+
+
+def test_the_release_check_rejects_a_bundle_carrying_configuration():
+    import sys
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from check_mcpb import _mapping_is_empty
+
+    assert _mapping_is_empty(b"environments: {}\n", "environments")
+    assert _mapping_is_empty(b"# a comment\nidentities: {}\n", "identities")
+    assert not _mapping_is_empty(
+        b"environments:\n  demo:\n    base_url: http://x\n", "environments"
+    )

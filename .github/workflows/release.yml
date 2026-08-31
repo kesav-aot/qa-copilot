@@ -41,24 +41,11 @@ jobs:
       - name: Build the extension
         run: python scripts/build_mcpb.py
 
+      # Deliberately a script file, not an inline heredoc: it can then be run
+      # locally, and YAML indentation cannot change what it does. It uses only
+      # the standard library, so the runner needs nothing installed.
       - name: Check what is inside it
-        run: |
-          python - <<'PY'
-          import sys, yaml, zipfile, pathlib
-          bundle = sorted(pathlib.Path("dist").glob("qa-copilot-*.mcpb"))[-1]
-          z = zipfile.ZipFile(bundle)
-          names = set(z.namelist())
-          need = {"manifest.json", "bin/qa-copilot-launch", "bin/qa-copilot-launch.ps1"}
-          missing = need - names
-          if missing:
-              sys.exit(f"bundle is missing {sorted(missing)}")
-          # Never ship a developer's own environments or accounts to everyone.
-          envs = yaml.safe_load(z.read("config-defaults/environments.yaml"))["environments"]
-          ids = yaml.safe_load(z.read("config-defaults/identities.yaml"))["identities"]
-          if envs or ids:
-              sys.exit(f"bundle ships configuration it should not: {list(envs)} {list(ids)}")
-          print(f"{bundle.name}: {bundle.stat().st_size // 1024} KB, clean")
-          PY
+        run: python scripts/check_mcpb.py
 
       - name: Publish
         env:
