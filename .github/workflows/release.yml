@@ -1,0 +1,71 @@
+# Publishes the Claude Desktop extension when a version tag is pushed.
+#
+# The download link is the whole point: a QA engineer cannot be asked to clone a
+# repository and build an artifact. Building it here rather than by hand also
+# means the published extension cannot quietly drift from the source it claims
+# to be.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write        # required to create the release and attach the asset
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The tag and the manifest must agree, or people download a file whose
+      # name says one version and whose contents say another.
+      - name: Check the tag matches the manifest
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest=$(python -c "import json;print(json.load(open('packaging/mcpb/manifest.json'))['version'])")
+          echo "tag=$tag manifest=$manifest"
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::tag $tag does not match manifest version $manifest"
+            exit 1
+          fi
+
+      # build_mcpb.py uses only the standard library, so there is nothing to install.
+      - name: Build the extension
+        run: python scripts/build_mcpb.py
+
+      - name: Check what is inside it
+        run: |
+          python - <<'PY'
+          import sys, yaml, zipfile, pathlib
+          bundle = sorted(pathlib.Path("dist").glob("qa-copilot-*.mcpb"))[-1]
+          z = zipfile.ZipFile(bundle)
+          names = set(z.namelist())
+          need = {"manifest.json", "bin/qa-copilot-launch", "bin/qa-copilot-launch.ps1"}
+          missing = need - names
+          if missing:
+              sys.exit(f"bundle is missing {sorted(missing)}")
+          # Never ship a developer's own environments or accounts to everyone.
+          envs = yaml.safe_load(z.read("config-defaults/environments.yaml"))["environments"]
+          ids = yaml.safe_load(z.read("config-defaults/identities.yaml"))["identities"]
+          if envs or ids:
+              sys.exit(f"bundle ships configuration it should not: {list(envs)} {list(ids)}")
+          print(f"{bundle.name}: {bundle.stat().st_size // 1024} KB, clean")
+          PY
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/qa-copilot-*.mcpb \
+            --title "QA Copilot $GITHUB_REF_NAME" \
+            --notes "Download the \`.mcpb\` below and double-click it to install into Claude Desktop. No terminal, no clone, no Python — it sets itself up on first run.
+
+          Full instructions: [docs/INSTALL-DESKTOP.md](https://github.com/kesav-aot/qa-copilot/blob/main/docs/INSTALL-DESKTOP.md)"

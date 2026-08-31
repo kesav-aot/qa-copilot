@@ -44,6 +44,33 @@ The boundary is code, not instruction. There is no `get_secret` tool to call, no
 `approve_plan` tool to self-clear, and every MCP response passes an egress guard
 that discards the payload if a known secret survives sanitisation.
 
+## Install it (no terminal, no clone)
+
+If you are a QA engineer, this is the only section you need.
+
+1. Download **`qa-copilot-<version>.mcpb`** from
+   [the latest release](https://github.com/kesav-aot/qa-copilot/releases/latest).
+2. Double-click it. Claude Desktop installs it.
+3. Restart Claude Desktop, then say: **"Set up QA Copilot for my app."**
+
+It opens a page in your own browser, looks at your application's sign-in form,
+and asks for exactly the credentials that form wants — a PIN as well, if it has
+one. Those go straight into a local file only you can read. The assistant is
+told the account's nickname and what it may do, never the credential.
+
+The first launch takes a few minutes while it fetches its own Python and a test
+browser. Nothing else is needed: no clone, no `pip`, no virtualenv.
+
+Full instructions, including what to do when something goes wrong:
+**[docs/INSTALL-DESKTOP.md](docs/INSTALL-DESKTOP.md)**.
+
+Using Claude Code instead? `/plugin marketplace add kesav-aot/qa-copilot`, then
+`/plugin install qa-copilot@qa-copilot`. Same launcher, same setup page.
+
+## Working on QA Copilot itself
+
+Everything below is for developing this tool, not for using it.
+
 ## Try it in two commands
 
 ```bash
@@ -130,7 +157,7 @@ choose that, so it cannot be talked into filling a password field somewhere else
 canned login recipe cannot drive, `fill_secret` takes a `secret://` reference —
 the plan still carries only the alias.
 
-## The fourteen MCP tools
+## The nineteen MCP tools
 
 Testing:
 
@@ -153,6 +180,21 @@ Getting tests in and out:
 | `analyze_test_case` | One case in full, with every finding against it. |
 | `draft_plan_from_test_case` | Scaffold a plan, with honest TODOs. |
 | `save_test_plan` | Put a reviewed plan in the library. |
+
+Plain English:
+
+| Tool | Purpose |
+|---|---|
+| `get_phrasebook` | Every phrase a test may be written in. |
+| `check_plain_test` | Compile English to a plan and read it back. Runs nothing. |
+| `run_plain_test` | Compile and run, in one step. |
+
+Connecting an application:
+
+| Tool | Purpose |
+|---|---|
+| `open_setup` | Open a setup page in the user's own browser. Takes no arguments, so no credential can be passed through it. |
+| `setup_status` | Whether that page has been filled in. Returns an alias, never a credential. |
 | `list_test_plans` | The library and the defined suites. |
 | `get_test_plan` | One saved plan, to edit and save back. |
 

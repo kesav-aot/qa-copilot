@@ -298,7 +298,7 @@ names = {t.name for t in asyncio.run(mcp_server.mcp.list_tools())}
 for wanted in ["get_secret", "read_secret", "read_env", "read_file",
                "run_javascript", "approve_plan"]:
     print(f"  {wanted:16} {'EXPOSED' if wanted in names else 'not exposed'}")
-print("\nthe 14 tools that do exist:")
+print("\nthe tools that do exist:")
 print("  " + ", ".join(sorted(names)))
 EOF
 ```
@@ -831,7 +831,7 @@ sees.
 ### 7.1 Claude Code
 
 From the project root, Claude Code picks up `.mcp.json` automatically. Confirm
-with `/mcp` — you should see a `qa-copilot` server with 14 tools.
+with `/mcp` — you should see a `qa-copilot` server with 19 tools.
 
 To install the full plugin instead — MCP server, three skills, three subagents,
 and the credential-guard hook — point Claude at `.claude-plugin/plugin.json`.
@@ -1107,7 +1107,7 @@ Suites
 
 Agent
 
-- [ ] The MCP server connects and lists 14 tools
+- [ ] The MCP server connects and lists 19 tools
 - [ ] It refuses an offered credential
 - [ ] It refuses to self-approve
 - [ ] It reports injected page text instead of acting on it

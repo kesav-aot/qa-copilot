@@ -113,3 +113,31 @@ def test_the_setup_tool_cannot_be_handed_a_credential():
     tool = next(t for t in registered_tools() if t.name == "open_setup")
     properties = (tool.input_schema or {}).get("properties") or {}
     assert properties == {}, f"open_setup must take no arguments, got {sorted(properties)}"
+
+
+def test_the_documented_tool_count_matches_reality():
+    """The README, CONNECT.md and MANUAL-TESTING.md all quoted a count, and all
+    three had drifted — to fourteen, seventeen and fourteen against nineteen
+    tools. A number in prose is only useful if it is checked."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    actual = len(registered_tools())
+
+    # Counts that were once right and silently stopped being so. A smaller
+    # number like "7 tools" also appears deliberately, in troubleshooting rows
+    # describing a stale connection, so this checks named staleness rather than
+    # every digit followed by the word "tools".
+    stale = {n: w for n, w in
+             {14: "fourteen", 17: "seventeen", 19: "nineteen", 20: "twenty"}.items()
+             if n != actual}
+
+    for name in ("README.md", "docs/CONNECT.md", "docs/MANUAL-TESTING.md"):
+        text = (root / name).read_text()
+        current = {14: "fourteen", 17: "seventeen", 19: "nineteen", 20: "twenty"}[actual]
+        assert f"{actual} tools" in text or f"{current} MCP tools" in text, (
+            f"{name} never states the tool count"
+        )
+        for number, word in stale.items():
+            assert f"{number} tools" not in text, f"{name} still says {number} tools"
+            assert f"{word} MCP tools" not in text, f"{name} still says {word}"

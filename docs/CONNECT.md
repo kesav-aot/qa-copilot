@@ -160,7 +160,7 @@ be working:
 claude mcp add-json qa-copilot --scope user '{"command":"/path/to/QA Copilot/.venv/bin/qa-copilot-mcp", ...}'
 ```
 
-Then run `/mcp` inside Claude Code. You should see **qa-copilot** with 17 tools.
+Then run `/mcp` inside Claude Code. You should see **qa-copilot** with 19 tools.
 
 ### Which scope
 
