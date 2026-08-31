@@ -55,15 +55,19 @@ class BrowserSession:
     def watch_console(self) -> None:
         """Keep the page's errors, so a step that failed for a JavaScript reason
         can say so instead of only reporting the symptom."""
-        def record(kind: str, text: str) -> None:
-            line = f"{kind}: {(text or '').strip()[:200]}"
+        def record(kind: str, text: str, where: str = "") -> None:
+            # "Failed to load resource: 404" is useless without the URL.
+            suffix = f"  [{where}]" if where else ""
+            line = f"{kind}: {(text or '').strip()[:200]}{suffix}"
             self._console.append(line)
             del self._console[:-40]  # keep the tail; early noise is rarely the cause
 
         try:
             self.page.context.on(
                 "console",
-                lambda msg: record(msg.type, msg.text) if msg.type in ("error", "warning") else None,
+                lambda msg: record(msg.type, msg.text, (msg.location or {}).get("url", ""))
+                if msg.type in ("error", "warning")
+                else None,
             )
             self.page.context.on("pageerror", lambda err: record("pageerror", str(err)))
         except Exception:
@@ -153,8 +157,26 @@ class BrowserSession:
         self, target: Target | None = None, url_contains: str | None = None, timeout_ms: int = 10_000
     ) -> None:
         if target is not None:
-            locator = await _locator(self.page, target)
-            await locator.first.wait_for(state="visible", timeout=timeout_ms)
+            # The element is usually not on the page yet — that is the whole
+            # reason someone wrote a wait. Resolution therefore has to be
+            # retried until the deadline; resolving once against the page as it
+            # is right now turns every "wait for X to appear" into an instant
+            # failure, and the timeout is never spent.
+            deadline = time.monotonic() + timeout_ms / 1000
+            while True:
+                remaining_ms = int((deadline - time.monotonic()) * 1000)
+                try:
+                    locator = await _locator(self.page, target)
+                    await locator.first.wait_for(
+                        state="visible", timeout=max(remaining_ms, 1)
+                    )
+                    break
+                except Exception:
+                    # Out of time: re-raise, so the caller still gets the
+                    # resolver's "here is what IS on the page" explanation.
+                    if time.monotonic() >= deadline:
+                        raise
+                    await asyncio.sleep(0.25)
         if url_contains is not None:
             await self.page.wait_for_url(f"**{url_contains}**", timeout=timeout_ms)
 
