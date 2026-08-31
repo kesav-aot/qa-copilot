@@ -409,3 +409,49 @@ def test_a_wrong_pin_is_rejected_like_a_wrong_password(session, workspace, demo_
     )
     assert result["state"] == "failed"
     assert not (workspace / ".env").exists()
+
+
+# --- what a person who just installed this is asked about -------------------
+
+
+def test_the_page_reports_a_browser_problem_instead_of_dropping_the_connection(
+    session, workspace, demo_server, monkeypatch
+):
+    """A fresh install has no browser yet. The handler used to let that escape,
+    http.server closed the connection unanswered, and the page could only say
+    'TypeError: Failed to fetch' — which points at the network, not the cause."""
+    _existing_account(workspace, demo_server)
+
+    async def no_browser(*_a, **_k):
+        raise RuntimeError("Executable doesn't exist at .../ms-playwright/chromium-1234/chrome")
+
+    monkeypatch.setattr("qa_copilot.executor.browser.open_session", no_browser)
+    monkeypatch.setattr(webui, "_start_browser_download", lambda: None)
+
+    result = fill(session, field_username=USERNAME, field_password=PASSWORD)
+    assert result["state"] == "failed"
+    assert "browser" in result["detail"].lower()
+    assert "did not sign in" not in result["detail"], (
+        "a browser that never started is not a wrong password"
+    )
+
+
+def test_any_unexpected_failure_still_answers_the_page(session, workspace, demo_server):
+    _existing_account(workspace, demo_server)
+
+    def explode(_self, _form):
+        raise ValueError("something nobody predicted")
+
+    original = webui.SetupSession.fill_existing
+    webui.SetupSession.fill_existing = explode
+    try:
+        data = urllib.parse.urlencode({"t": session.token, "alias": "THEIR_USER"}).encode()
+        req = urllib.request.Request(f"{session.url.split('?')[0]}fill", data)
+        try:
+            body = json.loads(urllib.request.urlopen(req, timeout=30).read())
+        except urllib.error.HTTPError as exc:
+            body = json.loads(exc.read())
+        assert body["state"] == "failed"
+        assert "something nobody predicted" in body["detail"]
+    finally:
+        webui.SetupSession.fill_existing = original

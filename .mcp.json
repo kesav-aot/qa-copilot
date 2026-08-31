@@ -1,12 +1,8 @@
 {
   "mcpServers": {
     "qa-copilot": {
-      "command": ".venv/bin/qa-copilot-mcp",
-      "args": [],
-      "env": {
-        "QA_COPILOT_CONFIG": "config",
-        "QA_COPILOT_STATE": ".qa-copilot"
-      }
+      "command": "packaging/launcher/qa-copilot-launch",
+      "args": []
     }
   }
 }

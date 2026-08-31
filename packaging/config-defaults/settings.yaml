@@ -5,7 +5,11 @@ secrets:
   # file_path: secrets.enc.yaml   # Fernet-encrypted, unlocked by QA_COPILOT_VAULT_KEY
 
 policy:
-  allowed_environments: [demo]
+  # Must not be an empty list. PolicyEngine treats an empty allow-list as
+  # "no restriction", so [] would allow every environment on a fresh install.
+  # This placeholder matches nothing; `qa-copilot setup` appends the real name
+  # when it creates an environment.
+  allowed_environments: [none-configured-yet]
   blocked_environments: [production, prod, live]
   approval_required_risk: medium   # low | medium | high
   destructive_actions: [delete, disable, purge, drop, revoke, deactivate]

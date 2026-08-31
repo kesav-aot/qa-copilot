@@ -35,20 +35,22 @@ def _yaml(bundle: zipfile.ZipFile, name: str) -> dict:
     return yaml.safe_load(bundle.read(f"config-defaults/{name}").decode())
 
 
-def test_the_bundle_ships_only_the_demo_environment(bundle):
-    assert list(_yaml(bundle, "environments.yaml")["environments"]) == ["demo"]
+def test_a_fresh_install_knows_about_no_applications(bundle):
+    """Anything shipped here is asked about by everyone who installs it."""
+    assert _yaml(bundle, "environments.yaml")["environments"] == {}
 
 
-def test_the_bundle_ships_only_the_demo_accounts(bundle):
-    assert sorted(_yaml(bundle, "identities.yaml")["identities"]) == [
-        "ADMIN_USER",
-        "STANDARD_USER",
-    ]
+def test_a_fresh_install_knows_about_no_accounts(bundle):
+    assert _yaml(bundle, "identities.yaml")["identities"] == {}
 
 
-def test_the_bundle_allows_only_the_demo_environment(bundle):
+def test_the_shipped_allow_list_is_inert_but_not_empty(bundle):
+    """An empty allow-list disables the check: PolicyEngine reads it as
+    'no restriction'. So the default must match nothing without being []."""
     policy = _yaml(bundle, "settings.yaml")["policy"]
-    assert policy["allowed_environments"] == ["demo"]
+    assert policy["allowed_environments"], "an empty list would allow every environment"
+    environments = _yaml(bundle, "environments.yaml")["environments"]
+    assert not set(policy["allowed_environments"]) & set(environments)
     assert "production" in policy["blocked_environments"]
 
 

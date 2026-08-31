@@ -43,7 +43,7 @@ Claude Desktop shows a form. Only the last two are secret.
 | Username | A **dedicated test account** | `qa-admin@yourapp.com` |
 | Password | Masked; stored by macOS, never sent to the AI | |
 
-Leave the address blank if you would rather try the built-in demo app first.
+You can leave the address blank and add your app later — just ask the assistant to set it up.
 
 ## 3. Restart Claude Desktop
 

@@ -68,7 +68,7 @@
     "app_url": {
       "type": "string",
       "title": "Web address of the app you want to test",
-      "description": "For an app running on your own machine this is usually http://localhost:3000. Leave blank to explore the built-in demo app first.",
+      "description": "For an app running on your own machine this is usually http://localhost:3000. You can also leave this blank and add your app later, from inside the assistant.",
       "required": false
     },
     "environment_name": {

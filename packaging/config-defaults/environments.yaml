@@ -1,31 +1,9 @@
-# Environments the QA Copilot may target.
-# The model sees `name` and `base_url` only. The login recipe stays here, in the
-# trusted layer, so the model never decides how a credential is typed.
+# A fresh install knows about no applications at all, on purpose.
+#
+# Whoever installs this adds theirs through the setup page, which looks at the
+# real sign-in form and asks for exactly the credentials it wants. Shipping
+# anything here means everyone is asked about accounts that are nothing to do
+# with them — and a demo entry would point at a port with nothing listening,
+# because the demo application is not part of the distributed package.
 
-environments:
-
-  demo:
-    base_url: http://127.0.0.1:8099
-    api_base_url: http://127.0.0.1:8099
-    login:
-      path: /login
-      username_target: { testid: login-username }
-      password_target: { testid: login-password }
-      submit_target:   { testid: login-submit }
-      success_url_contains: /dashboard
-      success_target:  { testid: dashboard-heading }
-      failure_target:  { testid: login-error }
-    api_auth:
-      mode: bearer
-      header_name: Authorization
-      login_path: /api/login
-
-  # Template for a real environment. Policy blocks anything named production.
-  # staging:
-  #   base_url: https://staging.example.internal
-  #   login:
-  #     path: /signin
-  #     username_target: { label: "Email" }
-  #     password_target: { label: "Password" }
-  #     submit_target:   { role: button, name: "Sign in" }
-  #     success_url_contains: /home
+environments: {}

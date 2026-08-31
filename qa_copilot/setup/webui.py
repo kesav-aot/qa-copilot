@@ -109,7 +109,10 @@ class SetupSession:
 
         environment = identity.environments[0] if identity.environments else None
         if environment:
-            problem = asyncio.run(_verify_login(self.config_dir, environment, alias, values))
+            try:
+                problem = asyncio.run(_verify_login(self.config_dir, environment, alias, values))
+            except BrowserUnavailable as exc:
+                return {"state": "failed", "detail": str(exc)}
             if problem:
                 return {
                     "state": "failed",
@@ -306,7 +309,12 @@ async def _verify_login(config_dir: Path, environment: str, alias: str, values: 
             if k not in ("username", "password")
         },
     )
-    session = await open_session(env, config.artifacts_path, headless=True)
+    try:
+        session = await open_session(env, config.artifacts_path, headless=True)
+    except Exception as exc:
+        # Not a credential problem, and must not be reported as one.
+        raise BrowserUnavailable(_browser_problem(exc)) from exc
+
     try:
         result = await session.login(env.login, creds)
     except Exception as exc:
@@ -335,6 +343,43 @@ async def _look_at_login(app_url: str, login_path: str):
         return await discover_login(session.page, base + login_path)
     finally:
         await session.close()
+
+
+class BrowserUnavailable(RuntimeError):
+    """The browser could not start, so nothing was tested either way."""
+
+
+def _browser_problem(exc: Exception) -> str:
+    """Turn a browser launch failure into something a QA engineer can act on."""
+    text = str(exc)
+    if "Executable doesn" in text or "playwright install" in text:
+        _start_browser_download()
+        return (
+            "The test browser has not finished downloading yet. I have started it "
+            "now — it is about 500 MB and takes a few minutes. Leave this page "
+            "open, then press the button again."
+        )
+    return f"could not start a browser: {text}"
+
+
+_browser_download_started = False
+
+
+def _start_browser_download() -> None:
+    """Fetch Chromium in the background, once, without blocking the page."""
+    global _browser_download_started
+    if _browser_download_started:
+        return
+    _browser_download_started = True
+    import subprocess
+    import sys
+
+    with contextlib.suppress(Exception):
+        subprocess.Popen(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
 
 def _label_for(name: str, extra: Any) -> str:
@@ -389,6 +434,21 @@ def _handler(session: SetupSession):
             self._send(200, page(session).encode("utf-8"), "text/html; charset=utf-8")
 
         def do_POST(self) -> None:  # noqa: N802
+            try:
+                self._post()
+            except Exception as exc:
+                # Without this the connection closes unanswered and the page can
+                # only say "Failed to fetch", which points at the network rather
+                # than at whatever actually went wrong.
+                self._json(
+                    500,
+                    {
+                        "state": "failed",
+                        "detail": f"Something went wrong in the setup service: {exc}",
+                    },
+                )
+
+        def _post(self) -> None:
             parsed = urlparse(self.path)
             if parsed.path not in ("/submit", "/fill", "/inspect"):
                 self._send(404, b"No.", "text/plain")

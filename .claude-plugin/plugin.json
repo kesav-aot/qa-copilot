@@ -9,11 +9,7 @@
   "keywords": ["qa", "testing", "automation", "playwright", "security"],
   "mcpServers": {
     "qa-copilot": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/packaging/launcher/qa-copilot-launch",
-      "env": {
-        "QA_COPILOT_CONFIG": "${CLAUDE_PLUGIN_ROOT}/config",
-        "QA_COPILOT_STATE": "${CLAUDE_PLUGIN_ROOT}/.qa-copilot"
-      }
+      "command": "${CLAUDE_PLUGIN_ROOT}/packaging/launcher/qa-copilot-launch"
     }
   }
 }

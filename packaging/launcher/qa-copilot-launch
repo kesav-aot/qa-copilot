@@ -48,8 +48,14 @@ else
     die "cannot find the QA Copilot package under $ROOT"
 fi
 
+# config/ at the root of a checkout is a *working* configuration — whoever
+# develops QA Copilot points it at their own applications. Shipping that to
+# everyone who installs the plugin means they open the setup page and are asked
+# about half a dozen accounts that are nothing to do with them.
 if [ -d "$ROOT/config-defaults" ]; then
-    DEFAULTS="$ROOT/config-defaults"
+    DEFAULTS="$ROOT/config-defaults"                # packaged bundle
+elif [ -d "$ROOT/packaging/config-defaults" ]; then
+    DEFAULTS="$ROOT/packaging/config-defaults"      # checkout / cloned plugin
 else
     DEFAULTS="$ROOT/config"
 fi
@@ -159,5 +165,16 @@ if [ -n "$APP_URL" ] && [ ! -f "$PROVISIONED" ]; then
     fi
 fi
 
-# --- 5. serve ---------------------------------------------------------------
+# --- 5. the test browser ----------------------------------------------------
+# Only the provisioning branch above used to fetch this, so an install that
+# never provisioned — the Claude Code plugin, or anyone who filled the setup
+# page instead — reached its first real browser step with no browser at all.
+# Fetch it in the background so startup is not held up by 500 MB.
+BROWSERS="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/Library/Caches/ms-playwright}"
+if [ ! -d "$BROWSERS" ]; then
+    log "fetching the test browser in the background (about 500 MB, one time)"
+    ("$PY" -m playwright install chromium >/dev/null 2>&1 &) || true
+fi
+
+# --- 6. serve ---------------------------------------------------------------
 exec "$VENV/bin/qa-copilot-mcp"
