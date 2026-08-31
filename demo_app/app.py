@@ -105,9 +105,9 @@ def index():
     return redirect(url_for("dashboard") if "user" in session else url_for("login"))
 
 
-# A second sign-in form that wants a third credential, the way some systems ask for a
-# second-level PIN. It exists so the setup flow can be exercised against a form
-# whose fields cannot be guessed in advance.
+# A second sign-in form that wants a third credential, the way some clinical and
+# banking systems ask for a second-level PIN. It exists so the setup flow can be
+# exercised against a form whose fields cannot be guessed in advance.
 SECOND_LEVEL_PIN = "4821"
 
 

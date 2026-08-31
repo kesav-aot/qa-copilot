@@ -355,7 +355,7 @@ def test_inspection_reports_an_ordinary_forms_two_fields(session, demo_server):
 def test_inspection_finds_a_third_credential_and_names_it_as_the_page_does(
     session, demo_server
 ):
-    """The case: nobody declared a PIN, the form was read."""
+    """Nobody declared a PIN anywhere; the form was read and it asked for one."""
     result = inspect(session, app_url=demo_server, login_path="/pin-login")
     assert result["ok"], result
     assert [f["name"] for f in result["fields"]] == ["username", "password", "pin"]

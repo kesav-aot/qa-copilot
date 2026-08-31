@@ -81,8 +81,8 @@ async def test_no_error_element_on_a_clean_page(browser, demo_server):
 
 
 async def test_a_third_credential_field_is_found(browser):
-    """Some sign-in forms want a PIN as well. Nothing can declare that ahead of time —
-    the form has to be looked at, which is the point of this module."""
+    """Some sign-in forms want a PIN as well. Nothing can declare that ahead of
+    time — the form has to be looked at, which is the point of this module."""
     found = await discover_login(browser.page, (FIXTURES / "pin-login.html").as_uri())
     assert found.complete
     assert list(found.extras) == ["pin"], found.extras

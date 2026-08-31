@@ -2,8 +2,8 @@
 
 Resolution is done against the live page, so resolving once means "wait for X
 to appear" fails instantly whenever X has not rendered — which is the only case
-anybody writes a wait for. Regression test for an inbox whose grid is
-fetched after the page load.
+anybody writes a wait for. Regression test for an inbox whose grid is fetched
+after the page load.
 """
 
 import asyncio
