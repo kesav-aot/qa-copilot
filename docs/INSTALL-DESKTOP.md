@@ -5,8 +5,13 @@ Everything below happens in Claude Desktop's own settings window.
 
 ## 1. Install
 
-Double-click **`qa-copilot-<version>.mcpb`**, or open Claude Desktop →
-Settings → Extensions and drag the file in.
+Open Claude Desktop, go to **Settings → Extensions**, and drag
+**`qa-copilot-<version>.mcpb`** into the window.
+
+Double-clicking the file also works *if* Windows or macOS has associated
+`.mcpb` with Claude Desktop. It often has not — on Windows the file frequently
+opens nothing at all, or is offered to another program. Dragging it into the
+Extensions pane does not depend on that association, so start there.
 
 ## 2. Tell it about your app
 

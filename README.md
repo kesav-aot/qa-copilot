@@ -50,7 +50,9 @@ If you are a QA engineer, this is the only section you need.
 
 1. Download **`qa-copilot-<version>.mcpb`** from
    [the latest release](https://github.com/kesav-aot/qa-copilot/releases/latest).
-2. Double-click it. Claude Desktop installs it.
+2. Open Claude Desktop → **Settings → Extensions** and drag the file in.
+   (Double-clicking works only if `.mcpb` is associated with Claude Desktop,
+   which on Windows it often is not.)
 3. Restart Claude Desktop, then say: **"Set up QA Copilot for my app."**
 
 It opens a page in your own browser, looks at your application's sign-in form,

@@ -1,8 +1,14 @@
-# QA Copilot launcher for Windows. The line-by-line counterpart of
+﻿# QA Copilot launcher for Windows. The line-by-line counterpart of
 # packaging/launcher/qa-copilot-launch; keep the two in step.
 #
 # Targets Windows PowerShell 5.1, which ships with Windows 10 and later, so it
 # avoids PowerShell 7 syntax (no ternaries, no ??, no -ErrorAction on natives).
+#
+# ASCII ONLY, and saved with a UTF-8 BOM. Windows PowerShell 5.1 reads a
+# BOM-less script as Windows-1252, so a UTF-8 em dash arrives as three
+# characters ending in a curly quote - which PowerShell accepts as a string
+# delimiter. One dash in a comment-free log line was enough to end the string
+# early and fail the whole file to parse.
 #
 # Claude speaks MCP over stdin/stdout, so STDOUT IS THE PROTOCOL CHANNEL. Every
 # diagnostic goes to stderr via [Console]::Error, which cannot be redirected
@@ -185,7 +191,7 @@ if ($appUrl -and -not (Test-Path $provisioned)) {
         New-Item -ItemType File -Force -Path $provisioned | Out-Null
         Write-Log "ready: environment '$envName' is configured"
     } else {
-        Write-Log "could not finish setup for '$envName' — the tools still work against"
+        Write-Log "could not finish setup for '$envName' - the tools still work against"
         Write-Log 'the demo app. Fix the settings and restart.'
     }
 }
