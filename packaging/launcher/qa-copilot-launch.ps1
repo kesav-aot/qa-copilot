@@ -145,11 +145,7 @@ if (-not $envName) { $envName = 'local' }
 $provisioned = Join-Path $runtime "provisioned-$envName"
 
 if ($appUrl -and -not (Test-Path $provisioned)) {
-    $browsers = $env:PLAYWRIGHT_BROWSERS_PATH
-    if (-not $browsers) { $browsers = Join-Path $env:LOCALAPPDATA 'ms-playwright' }
-    if (-not (Test-Path $browsers)) {
-        Write-Log 'first run: downloading the test browser (about 500 MB, one time)'
-    }
+    Write-Log 'checking the test browser (first time: about 500 MB)'
     & $py -m playwright install chromium 2>&1 |
         ForEach-Object { [Console]::Error.WriteLine($_) }
 
@@ -168,7 +164,19 @@ if ($appUrl -and -not (Test-Path $provisioned)) {
     }
 }
 
-# --- 5. serve ---------------------------------------------------------------
+# --- 5. the test browser ----------------------------------------------------
+# Unconditional, and never guarded by whether the cache directory exists: a
+# directory left by a different Playwright version contains no browser this code
+# can launch, and checking only for the directory skips the download forever.
+$browserLog = Join-Path $homeDir 'browser-install.log'
+Write-Log 'checking the test browser (first time: about 500 MB, in the background)'
+try {
+    Start-Process -FilePath $py -ArgumentList '-m', 'playwright', 'install', 'chromium' `
+        -RedirectStandardOutput $browserLog -RedirectStandardError "$browserLog.err" `
+        -NoNewWindow | Out-Null
+} catch { }
+
+# --- 6. serve ---------------------------------------------------------------
 # A native executable invoked this way inherits the parent's stdio handles, so
 # the MCP stream passes through untouched.
 & (Join-Path $venv 'Scripts\qa-copilot-mcp.exe')

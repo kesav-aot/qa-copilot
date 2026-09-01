@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "qa-copilot",
   "display_name": "QA Copilot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Plain-English test automation that never shows your passwords to the AI.",
   "long_description": "QA Copilot lets you describe a test in ordinary English — no selectors, no YAML, no code — and runs it against your web application in a real browser.\n\nThe model decides *what* to test and *who* to test as. It never learns a credential. Accounts are referred to by alias (ADMIN_USER) or by capability (manage_users); a trusted local layer resolves those into real values microseconds before typing them into the browser, and scrubs everything on the way back.\n\nThe password you enter below is stored by Claude Desktop in your operating system's credential store and handed to the local test runner as an environment variable. It is never sent to the model.",
   "author": {

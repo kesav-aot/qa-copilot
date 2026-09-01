@@ -338,6 +338,42 @@ class BrowserSession:
                 pass
 
 
+def is_browser_missing(exc: BaseException) -> bool:
+    """Is this failure 'the browser was never downloaded' rather than a real fault?"""
+    text = str(exc)
+    return "Executable doesn" in text or "playwright install" in text
+
+
+_download_started = False
+
+
+def start_browser_download() -> bool:
+    """Fetch the browser in the background, once per process.
+
+    Deliberately unconditional rather than guarded by whether the cache
+    directory exists: Playwright pins one build per version, so a directory left
+    by a different version — or by an interrupted download — contains no browser
+    this code can use, and checking only for the directory means the download is
+    skipped forever.
+    """
+    global _download_started
+    if _download_started:
+        return False
+    _download_started = True
+    import subprocess
+    import sys
+
+    try:
+        subprocess.Popen(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except Exception:
+        return False
+
+
 async def open_session(
     environment: Environment,
     artifact_dir: Path,
@@ -354,7 +390,24 @@ async def open_session(
     browser = None
     try:
         launcher = getattr(pw, browser_name)
-        browser = await launcher.launch(headless=headless)
+        try:
+            browser = await launcher.launch(headless=headless)
+        except Exception as exc:
+            if not is_browser_missing(exc):
+                raise
+            # Playwright's own message tells the reader to run a terminal
+            # command, which is the one thing the people this is built for
+            # cannot be asked to do. Start the download and say so plainly.
+            started = start_browser_download()
+            raise ExecutionError(
+                "The test browser is not installed. "
+                + (
+                    "I have started downloading it — it is about 500 MB and takes "
+                    "a few minutes. Run this again once it finishes."
+                    if started
+                    else "Download it with: playwright install chromium"
+                )
+            ) from exc
         context = await browser.new_context(ignore_https_errors=not environment.verify_tls)
         page = await context.new_page()
     except BaseException:

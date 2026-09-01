@@ -88,9 +88,17 @@ class PlanRunner:
                             "failure": {
                                 "step_index": None,
                                 "action": "open_browser",
+                                # A message we wrote already reads as an
+                                # instruction; wrapping it in a class name and a
+                                # second suggestion buries that.
                                 "detail": (
-                                    f"could not start the browser: {type(exc).__name__}: {exc}. "
-                                    "Run `qa-copilot doctor`."
+                                    str(exc)
+                                    if isinstance(exc, ExecutionError)
+                                    else (
+                                        f"could not start the browser: "
+                                        f"{type(exc).__name__}: {exc}. "
+                                        "Run `qa-copilot doctor`."
+                                    )
                                 ),
                             },
                             "secret_values_exposed": False,

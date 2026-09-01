@@ -170,11 +170,17 @@ fi
 # never provisioned — the Claude Code plugin, or anyone who filled the setup
 # page instead — reached its first real browser step with no browser at all.
 # Fetch it in the background so startup is not held up by 500 MB.
-BROWSERS="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/Library/Caches/ms-playwright}"
-if [ ! -d "$BROWSERS" ]; then
-    log "fetching the test browser in the background (about 500 MB, one time)"
-    ("$PY" -m playwright install chromium >/dev/null 2>&1 &) || true
-fi
+# Unconditionally, and never guarded by whether the cache directory exists.
+# Playwright pins one browser build per version, so a directory left behind by a
+# different version — or by a download that was interrupted — contains nothing
+# this code can launch. Checking only for the directory meant the download was
+# then skipped forever, and every test failed with Playwright's own message
+# telling the reader to run a terminal command.
+#
+# When the right build is already present this exits in about a second.
+BROWSER_LOG="$HOME_DIR/browser-install.log"
+log "checking the test browser (first time: about 500 MB, in the background)"
+("$PY" -m playwright install chromium >"$BROWSER_LOG" 2>&1 &) || true
 
 # --- 6. serve ---------------------------------------------------------------
 exec "$VENV/bin/qa-copilot-mcp"

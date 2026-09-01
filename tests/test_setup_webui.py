@@ -426,7 +426,9 @@ def test_the_page_reports_a_browser_problem_instead_of_dropping_the_connection(
         raise RuntimeError("Executable doesn't exist at .../ms-playwright/chromium-1234/chrome")
 
     monkeypatch.setattr("qa_copilot.executor.browser.open_session", no_browser)
-    monkeypatch.setattr(webui, "_start_browser_download", lambda: None)
+    monkeypatch.setattr(
+        "qa_copilot.executor.browser.start_browser_download", lambda: True
+    )
 
     result = fill(session, field_username=USERNAME, field_password=PASSWORD)
     assert result["state"] == "failed"

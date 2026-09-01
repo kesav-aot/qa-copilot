@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qa-copilot"
-version = "0.1.0"
+version = "0.1.1"
 description = "Secret-blind AI QA agent: the model plans, a trusted layer holds the credentials"
 requires-python = ">=3.11"
 dependencies = [

@@ -351,35 +351,16 @@ class BrowserUnavailable(RuntimeError):
 
 def _browser_problem(exc: Exception) -> str:
     """Turn a browser launch failure into something a QA engineer can act on."""
-    text = str(exc)
-    if "Executable doesn" in text or "playwright install" in text:
-        _start_browser_download()
+    from qa_copilot.executor.browser import is_browser_missing, start_browser_download
+
+    if is_browser_missing(exc):
+        start_browser_download()
         return (
             "The test browser has not finished downloading yet. I have started it "
             "now — it is about 500 MB and takes a few minutes. Leave this page "
             "open, then press the button again."
         )
-    return f"could not start a browser: {text}"
-
-
-_browser_download_started = False
-
-
-def _start_browser_download() -> None:
-    """Fetch Chromium in the background, once, without blocking the page."""
-    global _browser_download_started
-    if _browser_download_started:
-        return
-    _browser_download_started = True
-    import subprocess
-    import sys
-
-    with contextlib.suppress(Exception):
-        subprocess.Popen(
-            [sys.executable, "-m", "playwright", "install", "chromium"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+    return f"could not start a browser: {exc}"
 
 
 def _label_for(name: str, extra: Any) -> str:
