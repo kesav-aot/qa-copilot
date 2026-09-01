@@ -74,6 +74,32 @@ $venv    = Join-Path $runtime 'venv'
 $py      = Join-Path $venv 'Scripts\python.exe'
 $stamp   = Join-Path $runtime 'installed-version'
 
+# --- 0. one provisioner at a time -------------------------------------------
+# A host may start a second server while the first is still installing; both
+# then write the same virtualenv, and whichever reaches the server first can
+# find a half-written console script and exit without a word.
+$lock = Join-Path $runtime 'setup.lock'
+$haveLock = $false
+for ($i = 0; $i -lt 300; $i++) {
+    try {
+        [System.IO.Directory]::CreateDirectory($lock) | Out-Null
+        if (-not (Test-Path (Join-Path $lock '.taken'))) {
+            New-Item -ItemType File -Path (Join-Path $lock '.taken') -ErrorAction Stop | Out-Null
+            $haveLock = $true
+            break
+        }
+    } catch { }
+    $age = (Get-Date) - (Get-Item $lock -ErrorAction SilentlyContinue).LastWriteTime
+    if ($age.TotalMinutes -gt 10) {
+        Write-Log 'clearing a stale setup lock'
+        Remove-Item -Recurse -Force $lock -ErrorAction SilentlyContinue
+        continue
+    }
+    if ($i -eq 0) { Write-Log 'another QA Copilot is setting up; waiting for it' }
+    Start-Sleep -Seconds 1
+}
+function Release-Lock { if ($haveLock) { Remove-Item -Recurse -Force $lock -ErrorAction SilentlyContinue } }
+
 # --- 1. uv ------------------------------------------------------------------
 # uv provisions its own CPython. Windows may have no Python at all, and the one
 # from the Microsoft Store shims in ways that break virtualenvs.
@@ -169,15 +195,25 @@ if ($appUrl -and -not (Test-Path $provisioned)) {
 # directory left by a different Playwright version contains no browser this code
 # can launch, and checking only for the directory skips the download forever.
 $browserLog = Join-Path $homeDir 'browser-install.log'
-Write-Log 'checking the test browser (first time: about 500 MB, in the background)'
-try {
-    Start-Process -FilePath $py -ArgumentList '-m', 'playwright', 'install', 'chromium' `
-        -RedirectStandardOutput $browserLog -RedirectStandardError "$browserLog.err" `
-        -NoNewWindow | Out-Null
-} catch { }
+$browserStamp = Join-Path $runtime "browser-verified-$version"
+if (-not (Test-Path $browserStamp)) {
+    Write-Log 'checking the test browser (first time: about 500 MB, in the background)'
+    try {
+        Start-Process -FilePath $py -ArgumentList '-m', 'playwright', 'install', 'chromium' `
+            -RedirectStandardOutput $browserLog -RedirectStandardError "$browserLog.err" `
+            -NoNewWindow | Out-Null
+        New-Item -ItemType File -Force -Path $browserStamp | Out-Null
+    } catch { }
+}
 
 # --- 6. serve ---------------------------------------------------------------
 # A native executable invoked this way inherits the parent's stdio handles, so
 # the MCP stream passes through untouched.
-& (Join-Path $venv 'Scripts\qa-copilot-mcp.exe')
+$server = Join-Path $venv 'Scripts\qa-copilot-mcp.exe'
+if (-not (Test-Path $server)) {
+    Release-Lock
+    Stop-WithError "the server is missing at $server. The install did not complete; see $browserLog and try again."
+}
+Release-Lock
+& $server
 exit $LASTEXITCODE

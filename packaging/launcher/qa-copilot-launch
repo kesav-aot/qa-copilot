@@ -78,6 +78,33 @@ VENV="$RUNTIME/venv"
 PY="$VENV/bin/python"
 STAMP="$RUNTIME/installed-version"
 
+# --- 0. one provisioner at a time -------------------------------------------
+# A host may start a second server while the first is still setting itself up —
+# on an upgrade, both then run `uv pip install` into the same virtualenv, and
+# whichever reaches `exec` while the other is rewriting the console script finds
+# no file to run and exits without a word. mkdir is atomic, so it is the lock.
+LOCK="$RUNTIME/setup.lock"
+mkdir -p "$RUNTIME"
+have_lock=no
+i=0
+while [ $i -lt 300 ]; do                       # up to five minutes
+    if mkdir "$LOCK" 2>/dev/null; then
+        have_lock=yes
+        break
+    fi
+    # A lock left by a process that died is not a reason to wait forever.
+    if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
+        log "clearing a stale setup lock"
+        rmdir "$LOCK" 2>/dev/null || true
+        continue
+    fi
+    [ $i -eq 0 ] && log "another QA Copilot is setting up; waiting for it"
+    sleep 1
+    i=$((i + 1))
+done
+release_lock() { [ "$have_lock" = yes ] && rmdir "$LOCK" 2>/dev/null || true; }
+trap release_lock EXIT INT TERM
+
 # --- 1. uv ------------------------------------------------------------------
 # uv provisions its own CPython, which is the point: the Python that ships with
 # macOS is 3.9 and this package needs 3.11+. Asking a QA engineer to fix that by
@@ -179,8 +206,23 @@ fi
 #
 # When the right build is already present this exits in about a second.
 BROWSER_LOG="$HOME_DIR/browser-install.log"
-log "checking the test browser (first time: about 500 MB, in the background)"
-("$PY" -m playwright install chromium >"$BROWSER_LOG" 2>&1 &) || true
+BROWSER_STAMP="$RUNTIME/browser-verified-$VERSION"
+if [ ! -f "$BROWSER_STAMP" ]; then
+    log "checking the test browser (first time: about 500 MB, in the background)"
+    # nohup and a full detach: this outlives the shell, and nothing about the
+    # server's lifetime depends on it. A missing browser is repaired on demand
+    # by the executor as well, so this is a head start, not a prerequisite.
+    nohup sh -c "\"$PY\" -m playwright install chromium >\"$BROWSER_LOG\" 2>&1 \
+        && : > \"$BROWSER_STAMP\"" >/dev/null 2>&1 &
+fi
 
 # --- 6. serve ---------------------------------------------------------------
-exec "$VENV/bin/qa-copilot-mcp"
+SERVER="$VENV/bin/qa-copilot-mcp"
+if [ ! -x "$SERVER" ]; then
+    # Exec-ing a missing file exits the shell silently, and the host can only
+    # report "the process exited early" with no cause.
+    die "the server is missing at $SERVER. The install did not complete; see $BROWSER_LOG and try again."
+fi
+release_lock
+trap - EXIT INT TERM
+exec "$SERVER"

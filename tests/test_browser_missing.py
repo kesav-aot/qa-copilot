@@ -86,3 +86,44 @@ def test_both_launchers_agree():
     assert "playwright install chromium" in LAUNCHER.read_text()
     assert "playwright" in LAUNCHER_PS1.read_text()
     assert "browser-install.log" in LAUNCHER_PS1.read_text()
+
+
+# --- the crash Sonal's Desktop log showed -----------------------------------
+# Two servers started at once on an upgrade, both ran `uv pip install` into the
+# same virtualenv, and one reached `exec` while the console script was being
+# rewritten. Exec-ing a missing file exits the shell silently, so the host could
+# only report "the process exited early" with no cause at all.
+
+
+def test_provisioning_is_serialised():
+    text = LAUNCHER.read_text()
+    assert "setup.lock" in text, "two launchers must not install at once"
+    assert "mkdir \"$LOCK\"" in text, "the lock must be taken atomically"
+    assert "rmdir" in text, "and released"
+
+
+def test_a_stale_lock_does_not_block_forever():
+    assert "-mmin +10" in LAUNCHER.read_text(), "a lock from a dead process must expire"
+
+
+def test_the_launcher_never_execs_into_nothing():
+    """The silent failure. Without this the host says only 'exited early'."""
+    text = LAUNCHER.read_text()
+    exec_line = next(ln for ln in text.splitlines() if ln.startswith("exec "))
+    assert '"$SERVER"' in exec_line
+    assert "-x \"$SERVER\"" in text, "the server must be checked before exec"
+    assert "the server is missing at" in text, "and the reason must reach the host"
+
+
+def test_the_browser_is_verified_once_per_version_not_every_start():
+    """Every start paying for a 500 MB check is what made the upgrade fragile."""
+    text = LAUNCHER.read_text()
+    assert "browser-verified-$VERSION" in text
+    assert "nohup" in text, "the download must outlive the shell, not share its fate"
+
+
+def test_both_launchers_have_the_same_protections():
+    ps1 = LAUNCHER_PS1.read_text()
+    assert "setup.lock" in ps1
+    assert "browser-verified-" in ps1
+    assert "the server is missing at" in ps1
