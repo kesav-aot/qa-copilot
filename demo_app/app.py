@@ -111,6 +111,25 @@ def index():
 SECOND_LEVEL_PIN = "4821"
 
 
+# A link that opens in a new tab, the way a product or document listing does.
+# window.open was already handled; target=_blank was not, and that is the form
+# a shop's search results actually use.
+@app.get("/listing")
+def listing():
+    return render(
+        "Listing",
+        """
+          <h1>Results</h1>
+          <a href="/detail" target="_blank" data-testid=first-result>OnePlus Nord Buds 3r</a>
+        """,
+    )
+
+
+@app.get("/detail")
+def detail():
+    return render("Detail", "<h1>OnePlus Nord Buds 3r</h1><p>Add to Cart</p>")
+
+
 @app.route("/pin-login", methods=["GET", "POST"])
 def pin_login():
     error = None

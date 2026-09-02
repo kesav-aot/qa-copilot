@@ -363,6 +363,20 @@ def _build_screenshot(match: re.Match[str], ctx) -> Built:
     return Built(steps=[{"action": "screenshot", "name": slug}], explain=f"take a screenshot ({slug})")
 
 
+def _build_switch_new(match: re.Match[str], ctx) -> Built:
+    return Built(
+        steps=[{"action": "switch_window", "to": "new"}],
+        explain="work in the window or tab the last click opened",
+    )
+
+
+def _build_switch_back(match: re.Match[str], ctx) -> Built:
+    return Built(
+        steps=[{"action": "switch_window", "to": "previous"}],
+        explain="close that window and carry on in the previous one",
+    )
+
+
 def _build_note(match: re.Match[str], ctx) -> Built:
     return Built(steps=[], explain=f"note: {match.group('text').strip()}")
 
@@ -379,6 +393,36 @@ RULES: list[Rule] = [
         _build_note,
         "A comment. Recorded in the report, does nothing.",
         ["Note: this covers ticket QA-4417"],
+    ),
+    # --- windows and tabs
+    Rule(
+        "switch to the new window", "Moving around",
+        re.compile(
+            r"(?i)^(?:switch|move|go)\s+(?:over\s+)?to\s+(?:the\s+)?"
+            r"(?:new(?:ly\s+opened)?\s+)?(?:window|tab|popup|pop-up)" + END
+        ),
+        _build_switch_new,
+        "Work in the window or tab the last click opened. Needed when a link "
+        "opens a product, document or report in a new tab: without it every "
+        "later step runs against the page you were already on.",
+        [
+            "Switch to the new window",
+            "Switch to the new tab",
+            "Go to the new tab",
+        ],
+    ),
+    Rule(
+        "back to the previous window", "Moving around",
+        re.compile(
+            r"(?i)^(?:switch|move|go)\s+back\s+to\s+(?:the\s+)?"
+            r"(?:previous|original|first|opener|earlier)\s+(?:window|tab|page)" + END
+        ),
+        _build_switch_back,
+        "Close the window that was opened and carry on in the one before it.",
+        [
+            "Go back to the previous tab",
+            "Switch back to the original window",
+        ],
     ),
     # --- authentication
     Rule(

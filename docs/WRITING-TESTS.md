@@ -35,12 +35,13 @@ Admin can disable a user                                    PASSED  (1.2s)
 2. [Signing in — and why you never type a password](#2-signing-in)
 3. [Naming things on the page](#3-naming-things-on-the-page)
 4. [Checking — the part that makes it a test](#4-checking)
-5. [Check before you run](#5-check-before-you-run)
-6. [When it can't find something](#6-when-it-cant-find-something)
-7. [Tests that change data](#7-tests-that-change-data)
-8. [Working with an AI assistant](#8-working-with-an-ai-assistant)
-9. [Turning your existing test cases into these](#9-turning-your-existing-test-cases-into-these)
-10. [Every phrase you can use](#10-every-phrase-you-can-use)
+5. [Links that open a new tab](#5-links-that-open-a-new-tab)
+6. [Check before you run](#6-check-before-you-run)
+7. [When it can't find something](#7-when-it-cant-find-something)
+8. [Tests that change data](#8-tests-that-change-data)
+9. [Working with an AI assistant](#9-working-with-an-ai-assistant)
+10. [Turning your existing test cases into these](#10-turning-your-existing-test-cases-into-these)
+11. [Every phrase you can use](#11-every-phrase-you-can-use)
 
 ---
 
@@ -204,7 +205,27 @@ Verify "Access denied" is displayed
 
 ---
 
-## 5. Check before you run
+## 5. Links that open a new tab
+
+A product link, a document viewer, a report — these often open in a new tab or
+window. The click succeeds, but the page you were on does not change, so
+everything after it checks the wrong page.
+
+Say so, and it waits for the new one:
+
+```
+Go to /listing
+Click the first result
+Switch to the new tab
+Check the page shows "Add to Cart"
+Go back to the previous tab
+```
+
+`Switch to the new window` works too — window, tab and popup all mean the same
+thing here. If nothing opened, the step says so rather than carrying on quietly
+against the old page.
+
+## 6. Check before you run
 
 `qa-copilot check` tells you what QA Copilot understood, without touching the
 application:
@@ -236,7 +257,7 @@ Do this every time before you commit a test.
 
 ---
 
-## 6. When it can't find something
+## 7. When it can't find something
 
 This is the most useful error in the tool, so it is worth knowing what it looks
 like. It never just says "not found" — it tells you what *is* there:
@@ -271,7 +292,7 @@ fails. Password fields are always blanked out in them.
 
 ---
 
-## 7. Tests that change data
+## 8. Tests that change data
 
 Anything that deletes, disables, cancels or removes needs a person to approve it
 before it runs. You will see this:
@@ -297,7 +318,7 @@ Read-only tests never need approval.
 
 ---
 
-## 8. Working with an AI assistant
+## 9. Working with an AI assistant
 
 If QA Copilot is connected to Claude Code (or another assistant), you can ask in
 the same English you write tests in:
@@ -322,7 +343,7 @@ report it.
 
 ---
 
-## 9. Turning your existing test cases into these
+## 10. Turning your existing test cases into these
 
 If you already have test cases in Markdown, Excel, CSV, Gherkin `.feature` files
 or a Jira export, drop them in the `testcases/` folder:
@@ -358,7 +379,7 @@ fix in the original.
 
 ---
 
-## 10. Every phrase you can use
+## 11. Every phrase you can use
 
 ```bash
 qa-copilot words

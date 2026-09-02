@@ -457,3 +457,54 @@ def test_any_unexpected_failure_still_answers_the_page(session, workspace, demo_
         assert "something nobody predicted" in body["detail"]
     finally:
         webui.SetupSession.fill_existing = original
+
+
+# --- a site with no sign-in -------------------------------------------------
+# Someone with a public site was asked for a username and a password, had none
+# to give, and so had no way through the form at all.
+
+
+def test_a_public_site_needs_no_credentials(session, workspace):
+    result = submit(session, app_url="http://example.internal", environment="public",
+                    no_login="1", username="", password="")
+    assert result["state"] == "done", result
+    assert result["environment"] == "public"
+    assert result["alias"] is None, "there is no account, so there is no alias"
+
+    import yaml
+
+    environments = yaml.safe_load((workspace / "config" / "environments.yaml").read_text())
+    entry = environments["environments"]["public"]
+    assert entry["base_url"] == "http://example.internal"
+    assert "login" not in entry, "a public site has no sign-in recipe"
+
+
+def test_nothing_secret_is_stored_for_a_public_site(session, workspace):
+    submit(session, app_url="http://example.internal", environment="public", no_login="1")
+    assert not (workspace / ".env").exists()
+    assert not (workspace / "config" / "identities.yaml").exists()
+
+
+def test_a_public_environment_is_added_to_the_allow_list(session, workspace):
+    submit(session, app_url="http://example.internal", environment="public", no_login="1")
+    import yaml
+
+    policy = yaml.safe_load((workspace / "config" / "settings.yaml").read_text())["policy"]
+    assert "public" in policy["allowed_environments"]
+
+
+def test_without_the_tickbox_credentials_are_still_required(session, workspace):
+    result = submit(session, app_url="http://example.internal", username="", password="")
+    assert result["state"] == "failed"
+    assert "no sign-in" in result["detail"], "and it must point at the tickbox"
+
+
+def test_a_bare_hostname_is_accepted_and_made_absolute(session, workspace):
+    result = submit(session, app_url="example.internal", environment="public", no_login="1")
+    assert result["state"] == "done", result
+    assert result["url"] == "https://example.internal"
+
+
+def test_something_that_is_not_a_web_address_is_refused(session, workspace):
+    result = submit(session, app_url="not a url at all", environment="public", no_login="1")
+    assert result["state"] == "failed"

@@ -47,7 +47,6 @@ class BrowserSession:
     artifact_dir: Path
     authenticated_as: str | None = None
     _secret_targets: list[Target] = field(default_factory=list)
-    _new_pages: list["Page"] = field(default_factory=list)
     _console: list[str] = field(default_factory=list)
     _window_stack: list["Page"] = field(default_factory=list)
 
@@ -76,35 +75,50 @@ class BrowserSession:
     def console_errors(self) -> list[str]:
         return [line for line in self._console if line.startswith(("error", "pageerror"))][-10:]
 
-    def watch_for_popups(self) -> None:
-        """Record every window the application opens.
-
-        Apps that show a document in ``window.open`` would otherwise be
-        untestable: the click succeeds, the popup carries the content, and every
-        assertion afterwards runs against the untouched opener — passing or
-        failing for reasons that have nothing to do with the document.
-        """
-        try:
-            self.page.context.on("page", self._new_pages.append)
-        except Exception:
-            pass
-
     async def _follow_popup(self, timeout_ms: int = 700) -> str | None:
-        """Make the window the last click opened the page steps run against."""
+        """Make the window the last click opened the page steps run against.
+
+        Asks the browser context which pages exist rather than subscribing to
+        its "page" event. The event version never worked: registering
+        ``context.on("page", list.append)`` raises, because Playwright sets an
+        attribute on the handler and a built-in method has no ``__dict__``, and
+        the failure was swallowed. So popups were recorded nowhere, the click
+        reported success, and every later step ran against the untouched
+        opener - a document popup and a target=_blank product link failing the
+        same way for the same invisible reason.
+
+        Polling the context has no registration to fail, and needs nothing to
+        have been set up beforehand.
+        """
         deadline = time.monotonic() + timeout_ms / 1000
-        while time.monotonic() < deadline:
-            if self._new_pages:
-                popup = self._new_pages.pop()
-                self._new_pages.clear()
+        known = {id(page) for page in [self.page, *self._window_stack]}
+        while True:
+            fresh = [
+                page
+                for page in self.page.context.pages
+                if id(page) not in known and not page.is_closed()
+            ]
+            if fresh:
+                popup = fresh[-1]
                 try:
-                    await popup.wait_for_load_state("domcontentloaded", timeout=10_000)
+                    await popup.wait_for_load_state("domcontentloaded", timeout=5_000)
                 except Exception:
-                    pass  # a slow popup is still the right page to be on
+                    pass  # a slow window is still the right one to be in
                 self._window_stack.append(self.page)
                 self.page = popup
                 return popup.url
+            if time.monotonic() >= deadline:
+                return None
             await asyncio.sleep(0.05)
-        return None
+
+    async def switch_to_new_window(self, timeout_ms: int = 10_000) -> str | None:
+        """Wait for a window the application opened, and work in it.
+
+        The automatic follow after a click waits a few hundred milliseconds,
+        which is enough for window.open and not enough for a target=_blank tab
+        on a slow page. Asked for explicitly, it is worth waiting properly.
+        """
+        return await self._follow_popup(timeout_ms=timeout_ms)
 
     async def back_to_opener(self) -> str | None:
         """Return to the window that opened the current one."""
@@ -129,15 +143,20 @@ class BrowserSession:
         await self.page.goto(url, wait_until="domcontentloaded")
         return self.page.url
 
+    # A click no longer follows a window on its own. It used to try for 700ms,
+    # which made the behaviour depend on how fast the window happened to open:
+    # sometimes the steps afterwards ran in the new window, sometimes in the old
+    # one, and the report looked identical either way. "Switch to the new
+    # window" says it instead, and waits properly.
     async def click(self, target: Target, timeout_ms: int = 10_000) -> str | None:
         locator = await _locator(self.page, target)
         await locator.first.click(timeout=timeout_ms)
-        return await self._follow_popup()
+        return None
 
     async def double_click(self, target: Target, timeout_ms: int = 10_000) -> str | None:
         locator = await _locator(self.page, target)
         await locator.first.dblclick(timeout=timeout_ms)
-        return await self._follow_popup()
+        return None
 
     async def fill(self, target: Target, value: str, timeout_ms: int = 10_000) -> None:
         locator = await _locator(self.page, target)
@@ -425,6 +444,5 @@ async def open_session(
         playwright=pw,
         artifact_dir=artifact_dir,
     )
-    session.watch_for_popups()
     session.watch_console()
     return session

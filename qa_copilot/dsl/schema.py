@@ -171,6 +171,21 @@ class WaitFor(Base):
     timeout_ms: int = Field(default=10_000, ge=100, le=120_000)
 
 
+class SwitchWindow(Base):
+    """Move to the window or tab the last click opened, or back again.
+
+    A click is followed automatically for a moment, which covers a popup that
+    appears at once. It does not cover a tab that takes longer to open - a
+    product link with target=_blank on a busy site - and an automatic switch is
+    invisible in the test besides. This makes it something the test says out
+    loud, and waits properly for.
+    """
+
+    action: Literal["switch_window"]
+    to: Literal["new", "previous"] = "new"
+    timeout_ms: int = Field(default=10_000, ge=100, le=120_000)
+
+
 class Pause(Base):
     """A fixed wait. Discouraged — ``wait_for`` an observable thing instead — but
     people write it, and refusing would just push them out of the tool."""
@@ -228,6 +243,7 @@ Step = Annotated[
         FillSecret,
         Select,
         WaitFor,
+        SwitchWindow,
         Pause,
         ApiRequest,
         Screenshot,

@@ -30,7 +30,7 @@ def safe_dirname(name: str) -> str:
 
 _UI_ACTIONS = {
     "authenticate", "navigate", "click", "double_click", "fill", "fill_secret",
-    "select", "wait_for", "screenshot",
+    "select", "wait_for", "switch_window", "screenshot",
 }
 
 
@@ -251,6 +251,21 @@ class PlanRunner:
                 step.target, step.url_contains, step.timeout_ms
             )
             return "wait satisfied", None
+
+        if action == "switch_window":
+            if step.to == "previous":
+                url = await session.back_to_opener()  # type: ignore[union-attr]
+                if url is None:
+                    return None, "there is no earlier window to go back to"
+                return f"back in the earlier window ({url})", None
+            url = await session.switch_to_new_window(step.timeout_ms)  # type: ignore[union-attr]
+            if url is None:
+                return None, (
+                    "no new window or tab opened. If the click was meant to open "
+                    "one, it did not; if the page changed in place, this step is "
+                    "not needed."
+                )
+            return f"now working in the new window ({url})", None
 
         if action == "pause":
             await asyncio.sleep(step.seconds)

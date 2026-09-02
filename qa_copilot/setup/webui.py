@@ -23,6 +23,7 @@ import contextlib
 import html
 import io
 import json
+import re
 import secrets
 import threading
 import time
@@ -173,6 +174,55 @@ class SetupSession:
             )
         return {"ok": True, "fields": fields, "found": found.username.describe()}
 
+    def _add_public_environment(self, app_url: str, environment: str) -> dict[str, Any]:
+        """Write an environment with no sign-in recipe and no account.
+
+        Tests against it navigate and assert; there is nothing to authenticate
+        as, so no identity is created and no secret is stored.
+        """
+        from urllib.parse import urlparse
+
+        from qa_copilot.setup.writer import ConfigWriteError, allow_environment, append_under_key
+
+        if not app_url.startswith(("http://", "https://")):
+            app_url = "https://" + app_url
+        parsed = urlparse(app_url)
+        # A netloc alone is too weak a test: urlparse reads "not a url at all"
+        # as a host called "not", so a sentence would be accepted as an address.
+        host = parsed.netloc.split("@")[-1].split(":")[0]
+        if not re.fullmatch(r"[A-Za-z0-9._-]+|\[[0-9A-Fa-f:]+\]", host or ""):
+            return {
+                "state": "failed",
+                "detail": (
+                    f"{app_url!r} is not a web address. It should look like "
+                    f"http://localhost:3000 or https://example.com."
+                ),
+            }
+        base = f"{parsed.scheme}://{parsed.netloc}"
+
+        try:
+            append_under_key(
+                self.config_dir / "environments.yaml",
+                "environments",
+                environment,
+                {"base_url": base},
+            )
+        except ConfigWriteError as exc:
+            return {"state": "failed", "detail": str(exc)}
+        allow_environment(self.config_dir / "settings.yaml", environment)
+
+        return {
+            "state": "done",
+            "environment": environment,
+            "alias": None,
+            "url": base,
+            "detail": (
+                f"Added {environment} for {base}. There is no sign-in, so there "
+                f"is no account and nothing secret was stored. Ask the assistant "
+                f"to write a test against it."
+            ),
+        }
+
     def provision(self, form: dict[str, str]) -> dict[str, Any]:
         """Run the wizard with the form's answers. Returns a safe summary."""
         from qa_copilot.sanitize import sanitizer
@@ -180,12 +230,27 @@ class SetupSession:
         from qa_copilot.setup.wizard import run_wizard
 
         app_url = (form.get("app_url") or "").strip()
+        if not app_url:
+            return {"state": "failed", "detail": "The address of your app is needed."}
+        environment = (form.get("environment") or "local").strip() or "local"
+
+        # A public site has nothing to sign in to, and asking for a username and
+        # a password anyway is how someone gets stuck: they have no credentials
+        # to give, so there is no way through the form at all.
+        if form.get("no_login"):
+            return self._add_public_environment(app_url, environment)
+
         username = (form.get("username") or "").strip()
         password = form.get("password") or ""
-        if not app_url or not username or not password:
-            return {"state": "failed", "detail": "Address, username and password are all needed."}
+        if not username or not password:
+            return {
+                "state": "failed",
+                "detail": (
+                    "A username and password are needed to sign in. If this site "
+                    "needs no sign-in, tick 'this site needs no sign-in' instead."
+                ),
+            }
 
-        environment = (form.get("environment") or "local").strip() or "local"
         account = free_account_name(
             self.config_dir, (form.get("account") or "admin").strip() or "admin", environment
         )
@@ -555,6 +620,10 @@ _PAGE = """<!doctype html>
   legend{font-weight:600;padding:0 6px}
   label.cap{display:flex;align-items:baseline;gap:8px;margin:6px 0;font-size:14px}
   label.cap span{color:var(--dim);font-size:13px}
+  label.nologin{display:block;margin:0 0 18px;padding:12px 14px;border-radius:9px;
+    border:1px solid var(--line);background:var(--bg)}
+  label.nologin b{margin-left:6px}
+  label.nologin span{display:block;margin-top:4px}
   button{background:var(--accent);color:#fff;border:0;border-radius:9px;
          padding:12px 20px;font-size:15px;font-weight:600;cursor:pointer}
   button[disabled]{opacity:.6;cursor:default}
@@ -591,6 +660,11 @@ allowed to do, never the credential.</div>
   <label class="f"><span class="t">Web address of your app</span>
     <span class="h">If it runs on your own machine, something like http://localhost:3000</span>
     <input type="text" name="app_url" placeholder="http://localhost:3000" required></label>
+
+  <label class="cap nologin"><input type="checkbox" id="nologin" name="no_login" value="1">
+    <b>This site needs no sign-in</b>
+    <span>Tick this for a public site. Nothing will be asked about accounts or
+    passwords, and nothing secret is stored.</span></label>
 
   <div class="row">
     <label class="f"><span class="t">Call this environment</span>
@@ -652,6 +726,17 @@ const f = document.getElementById('f'), out = document.getElementById('out'),
 
 // Step one. Which credentials a form wants cannot be guessed — some ask for a
 // PIN or a clinic code as well — so the page is built from what is on it.
+const nologin = document.getElementById('nologin');
+nologin.addEventListener('change', () => {
+  const off = nologin.checked;
+  // No sign-in means no form to inspect and no credentials to collect.
+  document.querySelector('[name=login_path]').closest('label').style.display = off ? 'none' : '';
+  look.hidden = off;
+  go.hidden = !off;
+  creds.innerHTML = '';
+  out.className = ''; out.textContent = '';
+});
+
 look.addEventListener('click', async () => {
   look.disabled = true; look.textContent = 'Opening your sign-in page…';
   out.className = 'show'; out.textContent = 'Looking at the form.';
@@ -700,9 +785,10 @@ f.addEventListener('submit', async (e) => {
     const j = await r.json();
     if (j.state === 'done') {
       out.innerHTML = '<b class="ok">Done.</b>\\n\\n' +
-        'Environment: ' + j.environment + '\\nAccount:     ' + j.alias +
-        '\\n\\nGo back to your assistant and ask it to write a test. ' +
-        'Refer to the account as ' + j.alias + ', or just say "an admin".';
+        'Environment: ' + j.environment +
+        (j.alias ? '\\nAccount:     ' + j.alias : '\\nNo sign-in needed') +
+        '\\n\\nGo back to your assistant and ask it to write a test' +
+        (j.alias ? ', referring to the account as ' + j.alias + '.' : '.');
       go.textContent = 'Saved'; creds.querySelectorAll('[data-field]').forEach(i => { i.value = ''; });
     } else {
       out.innerHTML = '<b class="bad">That did not work.</b>\\n\\n' +
