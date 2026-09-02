@@ -91,7 +91,29 @@ The model is given the alias and the capability list. There is no tool it can
 call to resolve a `secret://`, and every response is scanned on the way out: if
 a real credential ever survived, the response is discarded rather than sent.
 
-## If something goes wrong
+## If the extension will not connect on Windows
+
+"Could not attach to MCP server" or "Unable to connect to extension server"
+means the launcher could not start the server. There is a route that avoids the
+extension entirely, and it is the one to use if a demo is imminent.
+
+Open a terminal (Git Bash, PowerShell or Command Prompt) and run:
+
+```
+git clone https://github.com/kesav-aot/qa-copilot.git
+cd qa-copilot
+py -m venv .venv
+.venv\Scripts\python -m pip install -e .
+.venv\Scripts\python -m playwright install chromium
+.venv\Scripts\qa-copilot mcp-config --desktop --install
+```
+
+Then quit Claude Desktop completely and reopen it. That points Desktop straight
+at `.venv\Scripts\qa-copilot-mcp.exe`, with no launcher and no shell in
+between, so none of the environment problems above can apply. Remove the
+extension from Settings first, so the two do not both register a server.
+
+## If something else goes wrong
 
 | Symptom | Cause | Fix |
 |---|---|---|

@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-REQUIRED = {"manifest.json", "bin/qa-copilot-launch", "bin/qa-copilot-launch.ps1"}
+REQUIRED = {"manifest.json", "bin/qa-copilot-launch", "bin/qa-copilot-launch.cmd"}
 
 
 def _mapping_is_empty(raw: bytes, key: str) -> bool:
@@ -59,17 +59,16 @@ def main() -> int:
         print("the launcher lost its executable bit", file=sys.stderr)
         return 1
 
-    # A .ps1 without a byte-order mark is read by Windows PowerShell 5.1 as
-    # Windows-1252, and one UTF-8 dash then ends a string early and fails the
-    # whole file to parse. That shipped once; it does not ship again.
-    ps1 = zf.read("bin/qa-copilot-launch.ps1")
-    if not ps1.startswith(b"\xef\xbb\xbf"):
-        print("the PowerShell launcher has no UTF-8 byte-order mark", file=sys.stderr)
-        return 1
+    # The batch launcher must be ASCII with CRLF endings: cmd.exe is unforgiving
+    # about both, and a non-ASCII byte in a .ps1 already cost one release.
+    batch = zf.read("bin/qa-copilot-launch.cmd")
     try:
-        ps1[3:].decode("ascii")
+        batch.decode("ascii")
     except UnicodeDecodeError as exc:
-        print(f"the PowerShell launcher contains non-ASCII: {exc}", file=sys.stderr)
+        print(f"the batch launcher contains non-ASCII: {exc}", file=sys.stderr)
+        return 1
+    if b"\r\n" not in batch:
+        print("the batch launcher has no CRLF line endings", file=sys.stderr)
         return 1
 
     for name, key in (("environments", "environments"), ("identities", "identities")):

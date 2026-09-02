@@ -11,7 +11,7 @@
       "source": "./",
       "displayName": "QA Copilot",
       "description": "Write tests in ordinary English and run them in a real browser. The model plans against identity aliases and capabilities; a trusted local layer resolves the credentials and scrubs every response on the way back.",
-      "version": "0.1.7",
+      "version": "0.1.8",
       "author": {
         "name": "QA Copilot"
       },

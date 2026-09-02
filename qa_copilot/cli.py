@@ -284,19 +284,29 @@ def cmd_mcp_config(args) -> int:
     directory."""
     root = Path.cwd().resolve()
 
-    # Prefer the launcher: it provisions its own Python, so the configuration
-    # this prints also works on a colleague's machine that has never run pip.
-    # Fall back to the virtualenv's entry point for an older checkout.
-    launcher = root / "packaging" / "launcher" / "qa-copilot-launch"
-    venv_server = root / ".venv" / "bin" / "qa-copilot-mcp"
-    if launcher.is_file():
-        server = launcher
-    elif venv_server.is_file():
-        server = venv_server
+    # On Windows the virtualenv's own executable comes first, and it is the most
+    # reliable thing to hand a host: it is started directly, with no shell, so
+    # nothing depends on PATH or PATHEXT — both of which the host may have
+    # stripped. Elsewhere the shell launcher comes first, because it provisions
+    # its own Python and so also works for someone who has never run pip.
+    if sys.platform.startswith("win"):
+        candidates = [
+            root / ".venv" / "Scripts" / "qa-copilot-mcp.exe",
+            root / "packaging" / "launcher" / "qa-copilot-launch.cmd",
+        ]
     else:
+        candidates = [
+            root / "packaging" / "launcher" / "qa-copilot-launch",
+            root / ".venv" / "bin" / "qa-copilot-mcp",
+        ]
+
+    server = next((c for c in candidates if c.is_file()), None)
+    if server is None:
+        listed = "\n  ".join(str(c) for c in candidates)
         print(
-            f"Neither {launcher} nor {venv_server} exists. Run this from the "
-            f"QA Copilot directory.",
+            f"None of these exist:\n  {listed}\n"
+            f"Run this from the QA Copilot directory, after creating the "
+            f"virtualenv.",
             file=sys.stderr,
         )
         return 2
