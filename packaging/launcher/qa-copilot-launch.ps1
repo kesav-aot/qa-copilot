@@ -30,6 +30,94 @@ function Stop-WithError([string]$Message) {
 
 # A host leaves ${user_config.x} unsubstituted when the field is blank. Treat a
 # leftover placeholder as "not set" rather than as a literal value.
+# Claude Desktop starts this process with a stripped environment. With no
+# PATHEXT, PowerShell classifies even a valid .exe as a "document" and refuses
+# to run it in a pipeline - which is why every interpreter on the machine,
+# including a python.org install and the py launcher, reported "cannot run a
+# document in the middle of a pipeline". uv was never corrupt; nothing could run.
+if (-not $env:PATHEXT) {
+    $env:PATHEXT = '.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC'
+}
+
+function Format-ExeArgs([string[]]$arguments) {
+    <#
+      Quote arguments the way CommandLineToArgvW will read them back.
+
+      Windows PowerShell 5.1 has no ProcessStartInfo.ArgumentList, so the
+      command line has to be built by hand: wrap anything containing a space or
+      a quote, double any run of backslashes that precedes a quote, and escape
+      the quotes themselves.
+    #>
+    $parts = @()
+    foreach ($argument in $arguments) {
+        $value = [string]$argument
+        if ($value -eq '') { $parts += '""'; continue }
+        if ($value -notmatch '[\s"]') { $parts += $value; continue }
+        $escaped = $value -replace '(\\*)"', '$1$1\"'
+        $escaped = $escaped -replace '(\\+)$', '$1$1'
+        $parts += '"' + $escaped + '"'
+    }
+    return ($parts -join ' ')
+}
+
+function Invoke-Exe([string]$exe, [string[]]$arguments) {
+    <#
+      Run a program without going through PowerShell's pipeline.
+
+      Start-Process with redirection uses CreateProcess rather than
+      ShellExecute, so it neither consults PATHEXT nor can mistake a program
+      for a document. Returns the exit code and both streams instead of writing
+      them anywhere, because stdout here is the MCP channel.
+    #>
+    $outFile = [System.IO.Path]::GetTempFileName()
+    $errFile = [System.IO.Path]::GetTempFileName()
+    $code = -1
+    $failure = ''
+    try {
+        $splat = @{
+            FilePath               = $exe
+            NoNewWindow            = $true
+            Wait                   = $true
+            PassThru               = $true
+            RedirectStandardOutput = $outFile
+            RedirectStandardError  = $errFile
+        }
+        # One pre-quoted string, not an array. Start-Process loses the grouping
+        # of any argument containing a space - which silently broke both the
+        # version probe (-c "import sys; ...") and pip install, since the
+        # extension's own path contains a space: "Claude Extensions".
+        if ($arguments -and $arguments.Count -gt 0) {
+            $splat['ArgumentList'] = (Format-ExeArgs $arguments)
+        }
+        $proc = Start-Process @splat
+        $code = $proc.ExitCode
+    } catch {
+        $failure = $_.Exception.Message
+    }
+    $stdout = ''
+    $stderr = ''
+    if (Test-Path $outFile) {
+        $stdout = [string](Get-Content $outFile -Raw -ErrorAction SilentlyContinue)
+        Remove-Item $outFile -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path $errFile) {
+        $stderr = [string](Get-Content $errFile -Raw -ErrorAction SilentlyContinue)
+        Remove-Item $errFile -Force -ErrorAction SilentlyContinue
+    }
+    if ($failure) { $stderr = $failure }
+    return [pscustomobject]@{ Code = $code; Output = $stdout; Error = $stderr }
+}
+
+function Write-Streams($result) {
+    foreach ($stream in @($result.Output, $result.Error)) {
+        if ($stream) {
+            foreach ($line in ("$stream" -split "`r?`n")) {
+                if ($line.Trim()) { [Console]::Error.WriteLine("    " + $line.TrimEnd()) }
+            }
+        }
+    }
+}
+
 function Get-Setting([string]$Name) {
     $value = [Environment]::GetEnvironmentVariable($Name)
     if ([string]::IsNullOrWhiteSpace($value)) { return '' }
@@ -123,12 +211,8 @@ function Release-Lock { if ($haveLock) { Remove-Item -Recurse -Force $lock -Erro
 
 function Test-Runnable([string]$exe) {
     # A file can exist, and still not be something Windows will execute.
-    try {
-        & $exe --version 2>&1 | Out-Null
-        return $LASTEXITCODE -eq 0
-    } catch {
-        return $false
-    }
+    $result = Invoke-Exe $exe @('--version')
+    return $result.Code -eq 0
 }
 
 function Get-PythonCandidates {
@@ -248,16 +332,14 @@ function New-Environment([string]$target) {
         $selector = $candidate.Selector
         $shown = if ($selector) { "$exe $selector" } else { $exe }
         Write-Log "  trying $shown"
-        try {
-            if ($selector) {
-                & $exe $selector -m venv $target 2>&1 |
-                    ForEach-Object { [Console]::Error.WriteLine("    $_") }
-            } else {
-                & $exe -m venv $target 2>&1 |
-                    ForEach-Object { [Console]::Error.WriteLine("    $_") }
-            }
-        } catch {
-            Write-Log "  $shown could not run: $($_.Exception.Message)"
+        $argv = @()
+        if ($selector) { $argv += $selector }
+        $argv += @('-m', 'venv', $target)
+        $result = Invoke-Exe $exe $argv
+        Write-Streams $result
+        if ($result.Code -ne 0) {
+            $why = if ($result.Error) { ("$($result.Error)" -split "`r?`n")[0] } else { "exit code $($result.Code)" }
+            Write-Log "  $shown did not work: $why"
             continue
         }
         # Both layouts, so this function can be exercised off Windows. None of
@@ -272,11 +354,10 @@ function New-Environment([string]$target) {
         }
         # Ask the environment itself, so there is no second guess about which
         # interpreter ended up inside it.
-        $ver = ''
-        try {
-            $ver = & $created -c "import sys; print(str(sys.version_info[0]) + '.' + str(sys.version_info[1]))" 2>&1
-        } catch { }
-        $parts = "$ver".Trim().Split('.')
+        $probe = Invoke-Exe $created @('-c',
+            "import sys; print(str(sys.version_info[0]) + '.' + str(sys.version_info[1]))")
+        $ver = "$($probe.Output)".Trim()
+        $parts = $ver.Split('.')
         $major = 0; $minor = 0
         if ($parts.Count -ge 2) {
             [void][int]::TryParse($parts[0], [ref]$major)
@@ -337,10 +418,10 @@ if (-not (Test-Path $py -PathType Leaf)) {
                             "tick 'Add python.exe to PATH', then restart Claude Desktop.")
         }
         Write-Log 'preparing a private Python 3.12 (about a minute)'
-        try {
-            & $uv venv --python 3.12 $venv 2>&1 | ForEach-Object { [Console]::Error.WriteLine($_) }
-        } catch {
-            Stop-WithError "could not create the Python environment: $($_.Exception.Message)"
+        $result = Invoke-Exe $uv @('venv', '--python', '3.12', $venv)
+        Write-Streams $result
+        if ($result.Code -ne 0) {
+            Stop-WithError "could not create the Python environment (uv exit $($result.Code))"
         }
     }
     if (-not (Test-Path $py -PathType Leaf)) {
@@ -352,13 +433,12 @@ $installed = ''
 if (Test-Path $stamp) { $installed = (Get-Content $stamp -Raw).Trim() }
 if ($installed -ne $version) {
     Write-Log "installing QA Copilot $version"
-    try {
-        & $py -m pip install --quiet --upgrade pip 2>&1 | Out-Null
-        & $py -m pip install --quiet $src 2>&1 | ForEach-Object { [Console]::Error.WriteLine($_) }
-    } catch {
-        Stop-WithError "could not install QA Copilot's dependencies: $($_.Exception.Message)"
+    Invoke-Exe $py @('-m', 'pip', 'install', '--quiet', '--upgrade', 'pip') | Out-Null
+    $result = Invoke-Exe $py @('-m', 'pip', 'install', '--quiet', $src)
+    Write-Streams $result
+    if ($result.Code -ne 0) {
+        Stop-WithError "could not install QA Copilot's dependencies (pip exit $($result.Code))"
     }
-    if ($LASTEXITCODE -ne 0) { Stop-WithError "could not install QA Copilot's dependencies" }
     Set-Content -Path $stamp -Value $version -NoNewline
 }
 
@@ -388,16 +468,16 @@ $provisioned = Join-Path $runtime "provisioned-$envName"
 
 if ($appUrl -and -not (Test-Path $provisioned)) {
     Write-Log 'checking the test browser (first time: about 500 MB)'
-    & $py -m playwright install chromium 2>&1 |
-        ForEach-Object { [Console]::Error.WriteLine($_) }
+    Write-Streams (Invoke-Exe $py @('-m', 'playwright', 'install', 'chromium'))
 
     Write-Log "looking at $appUrl to find its sign-in form"
     $provision = Join-Path $root 'bootstrap\provision.py'
     if (-not (Test-Path $provision)) {
         $provision = Join-Path $root 'packaging\mcpb\bootstrap\provision.py'
     }
-    & $py $provision 2>&1 | ForEach-Object { [Console]::Error.WriteLine($_) }
-    if ($LASTEXITCODE -eq 0) {
+    $result = Invoke-Exe $py @($provision)
+    Write-Streams $result
+    if ($result.Code -eq 0) {
         New-Item -ItemType File -Force -Path $provisioned | Out-Null
         Write-Log "ready: environment '$envName' is configured"
     } else {
@@ -431,5 +511,18 @@ if (-not (Test-Path $server)) {
     Stop-WithError "the server is missing at $server. The install did not complete; see $browserLog and try again."
 }
 Release-Lock
-& $server
-exit $LASTEXITCODE
+
+# Started explicitly rather than with the call operator. UseShellExecute=$false
+# is CreateProcess, so this does not consult PATHEXT and cannot be treated as a
+# document; and because nothing is redirected, the child inherits this process's
+# stdin and stdout, which is the MCP channel.
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = $server
+$psi.UseShellExecute = $false
+try {
+    $proc = [System.Diagnostics.Process]::Start($psi)
+} catch {
+    Stop-WithError "could not start the server: $($_.Exception.Message)"
+}
+$proc.WaitForExit()
+exit $proc.ExitCode

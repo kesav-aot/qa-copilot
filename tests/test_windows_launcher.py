@@ -40,9 +40,17 @@ def test_no_smart_quotes_anywhere():
 
 
 def test_every_string_is_closed():
-    """The failure the parser reported. A scanner that strips strings cannot
-    find this — an unterminated string swallows the rest of the file — so this
-    walks the file and asserts it ends outside any string."""
+    """A fallback for machines with no PowerShell.
+
+    This is a heuristic, and it false-positives on regex literals containing
+    quotes, so it steps aside when a real parser is available — that test is
+    strictly better. It stays for CI images without pwsh, where it is the only
+    thing standing between an unterminated string and a shipped release.
+    """
+    if _pwsh():
+        import pytest
+
+        pytest.skip("test_it_parses_under_real_powershell covers this properly")
     text = PS1.read_bytes()[len(BOM):].decode("utf-8")
     for number, line in enumerate(text.splitlines(), 1):
         state = None  # None, '"' or "'"
@@ -113,17 +121,16 @@ def test_it_parses_under_real_powershell():
     assert result.returncode == 0, f"PowerShell will not parse it:\n{result.stdout}"
 
 
-def test_native_calls_are_guarded():
-    """`& $uv venv ...` was unguarded, so a uv.exe that existed but would not
-    run killed the script with 'cannot run a document in the middle of a
-    pipeline' — an error a try/catch does catch."""
+def test_every_program_call_reports_its_exit_code():
+    """`& $uv venv ...` was unguarded, so a uv that would not run killed the
+    script outright. Now every call returns a code that is checked, rather than
+    throwing from the middle of a pipeline."""
     text = PS1.read_bytes()[len(BOM):].decode("utf-8")
     assert "function Test-Runnable" in text, "an executable must be proved to run"
     assert "Test-Path $candidate -PathType Leaf" in text, "a directory is not a binary"
-    for call in ("& $uv venv", "& $exe -m venv", "& $py -m pip install"):
-        index = text.index(call)
-        preceding = text[max(0, index - 600) : index]
-        assert "try {" in preceding, f"{call} is not inside a try block"
+    for call in ("Invoke-Exe $uv", "Invoke-Exe $exe", "Invoke-Exe $py"):
+        assert call in text, f"{call} missing"
+    assert text.count("$result.Code -ne 0") >= 2, "exit codes must be acted on"
 
 
 def test_an_installed_python_is_preferred_over_downloading_a_runtime():
@@ -240,3 +247,47 @@ def test_the_path_it_actually_saw_is_logged_on_failure():
     """So the next failure arrives with the evidence instead of a guess."""
     text = PS1.read_bytes()[len(BOM):].decode("utf-8")
     assert "PATH seen by this process" in text
+
+
+def test_pathext_is_repaired_before_anything_runs():
+    """Every interpreter on the machine reported "cannot run a document in the
+    middle of a pipeline" — a valid python.exe, the py launcher and uv alike.
+    That is what PowerShell says when PATHEXT does not list the extension, and
+    Claude Desktop starts this process with a stripped environment."""
+    text = PS1.read_bytes()[len(BOM):].decode("utf-8")
+    assert "PATHEXT" in text
+    assert text.index("PATHEXT") < text.index("function Invoke-Exe")
+
+
+def test_nothing_is_run_through_a_pipeline():
+    """The call operator consults PATHEXT and can ShellExecute a program as if
+    it were a document. Start-Process with redirection is CreateProcess."""
+    text = PS1.read_bytes()[len(BOM):].decode("utf-8")
+    code = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
+    for forbidden in ("& $py", "& $uv", "& $exe", "& $created", "& $server"):
+        assert forbidden not in code, f"{forbidden} bypasses Invoke-Exe"
+    assert "UseShellExecute = $false" in code, "the server must be CreateProcess too"
+
+
+def test_arguments_containing_spaces_survive():
+    """Start-Process -ArgumentList loses the grouping of any argument with a
+    space. It silently broke the version probe, which then read every Python as
+    "0.0" — and would have broken pip install, since the extension's own path
+    contains one: "Claude Extensions"."""
+    result = _run_pwsh(
+        "Write-Output (Format-ExeArgs @('-c','import sys; print(1)')); "
+        "Write-Output (Format-ExeArgs @('-m','pip','install','C:\\A B\\src'))"
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
+    assert lines[0] == '-c "import sys; print(1)"', lines
+    assert lines[1] == '-m pip install "C:\\A B\\src"', lines
+
+
+def test_a_program_that_will_not_run_is_reported_not_assumed_missing():
+    result = _run_pwsh(
+        "$r = Invoke-Exe '/does/not/exist' @('x'); "
+        "if ($r.Code -eq 0) { Write-Output 'WRONG'; exit 1 }; Write-Output 'reported'"
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "reported" in result.stdout
