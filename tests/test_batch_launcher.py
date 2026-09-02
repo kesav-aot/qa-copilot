@@ -99,3 +99,25 @@ def test_placeholders_from_the_host_are_treated_as_unset():
     text = _text()
     assert ":clean" in text
     assert "${=" in text, "the check is for a literal ${ in the value"
+
+
+def test_a_completed_install_never_waits_for_the_lock():
+    """The hang: a lock left by one of the crashed PowerShell starts blocked
+    every later start. The host cancels an initialize after about a minute, so
+    a launcher that waits longer than that has simply stopped working."""
+    text = _text()
+    assert "NEEDSETUP" in text
+    assert text.index("if not defined NEEDSETUP goto :ready") < text.index(":lock"), (
+        "the check must come before the lock is touched"
+    )
+    assert ":ready" in text
+
+
+def test_the_wait_is_shorter_than_the_hosts_own_timeout():
+    text = _text()
+    match = re.search(r"if %TRIES% GEQ (\d+)", text)
+    assert match, "the wait must be bounded"
+    tries = int(match.group(1))
+    # ping -n 3 is about two seconds per attempt.
+    assert tries * 2 <= 30, f"{tries} attempts is longer than a host will wait"
+    assert "taking it over" in text, "and it must then break the lock, not give up"

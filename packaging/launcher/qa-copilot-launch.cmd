@@ -60,22 +60,36 @@ set "STAMP=%RUNTIME%\installed-version"
 set "BROWSERLOG=%HOMEDIR%\browser-install.log"
 if not exist "%RUNTIME%" md "%RUNTIME%" 2>nul
 
-rem --- one provisioner at a time ---------------------------------------------
-rem md fails when the directory exists, so it is the lock.
+rem --- is there anything to do at all? ---------------------------------------
+rem The common case is an install that is already complete. Checking that before
+rem touching the lock means a started server never waits, which matters because
+rem the host cancels an initialize that takes about a minute - and a lock left
+rem behind by a crashed start then blocks every future start forever.
+set "INSTALLED="
+if exist "%STAMP%" set /p INSTALLED=<"%STAMP%"
+set "NEEDSETUP=1"
+if exist "%SERVER%" if "%INSTALLED%"=="%VERSION%" set "NEEDSETUP="
+
 set "LOCK=%RUNTIME%\setup.lock"
 set "HAVELOCK="
+if not defined NEEDSETUP goto :ready
+
+rem --- one provisioner at a time ---------------------------------------------
+rem md fails when the directory exists, so it is the lock. The wait is capped
+rem well under the host's own timeout: waiting longer than the host is willing
+rem to wait is the same as never starting.
 set /a TRIES=0
 :lock
 md "%LOCK%" 2>nul && (set "HAVELOCK=1" & goto :locked)
 set /a TRIES+=1
-if %TRIES%==1 echo qa-copilot: another QA Copilot is setting up; waiting for it 1>&2
-if %TRIES% GEQ 150 (
-    echo qa-copilot: giving up waiting; clearing the lock 1>&2
+if %TRIES%==1 echo qa-copilot: another QA Copilot is setting up; waiting up to 20 seconds 1>&2
+if %TRIES% GEQ 10 (
+    echo qa-copilot: that setup did not finish; taking it over 1>&2
     rd /s /q "%LOCK%" 2>nul
-    md "%LOCK%" 2>nul && set "HAVELOCK=1"
+    md "%LOCK%" 2>nul
+    set "HAVELOCK=1"
     goto :locked
 )
-rem Two seconds, without needing timeout.exe, which is absent in some images.
 ping -n 3 127.0.0.1 >nul 2>nul
 goto :lock
 :locked
@@ -99,8 +113,6 @@ if not exist "%PY%" (
     )
 )
 
-set "INSTALLED="
-if exist "%STAMP%" set /p INSTALLED=<"%STAMP%"
 if not "%INSTALLED%"=="%VERSION%" (
     echo qa-copilot: installing QA Copilot %VERSION% 1>&2
     "%PY%" -m pip install --quiet --disable-pip-version-check "%SRC%" 1>&2
@@ -112,6 +124,7 @@ if not "%INSTALLED%"=="%VERSION%" (
     > "%STAMP%" echo %VERSION%
 )
 
+:ready
 rem --- the workspace ---------------------------------------------------------
 if not defined QA_COPILOT_CONFIG (
     set "QA_COPILOT_CONFIG=%HOMEDIR%\config"
