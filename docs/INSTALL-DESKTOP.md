@@ -102,10 +102,31 @@ a real credential ever survived, the response is discarded rather than sent.
 | Sign-in is single sign-on | Not supported by automatic setup | Use `qa-copilot init` in a terminal, or an API token account |
 | Environment named `production`, `prod` or `live` | Refused by policy, deliberately | Point it at a test environment |
 
-## Building the bundle (for whoever ships it)
+## Publishing a new version (for whoever ships it)
+
+Three ways, all producing the same file.
+
+**From the GitHub website**, no terminal: Actions -> **release** -> **Run
+workflow**. Leave the version blank and it uses whatever
+`packaging/mcpb/manifest.json` says. It builds the bundle, checks it, and
+attaches it to a release.
+
+**By tagging**, which is the normal route for a real version:
+
+```bash
+git tag -a v0.1.4 -m "QA Copilot 0.1.4"
+git push origin v0.1.4
+```
+
+The tag must match the version in the manifest, or the workflow refuses to
+publish — otherwise people download a file whose name says one version and
+whose contents say another.
+
+**Locally**, to inspect the bundle without releasing it:
 
 ```bash
 .venv/bin/python scripts/build_mcpb.py     # -> dist/qa-copilot-<version>.mcpb
+.venv/bin/python scripts/check_mcpb.py     # the same gate CI applies
 ```
 
 The bundle carries source only — about 115 KB. The Python interpreter, the

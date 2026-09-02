@@ -11,6 +11,14 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # So the release can also be built from the Actions tab, without a terminal:
+  # Actions -> release -> Run workflow.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish. Leave blank to use packaging/mcpb/manifest.json."
+        required: false
+        default: ""
 
 permissions:
   contents: write        # required to create the release and attach the asset
@@ -25,17 +33,27 @@ jobs:
         with:
           python-version: "3.12"
 
-      # The tag and the manifest must agree, or people download a file whose
-      # name says one version and whose contents say another.
-      - name: Check the tag matches the manifest
+      # Whichever way this was started, the version that gets published and the
+      # version inside the bundle must agree — otherwise people download a file
+      # whose name says one thing and whose contents say another.
+      - name: Work out the version
+        id: version
         run: |
-          tag="${GITHUB_REF_NAME#v}"
           manifest=$(python -c "import json;print(json.load(open('packaging/mcpb/manifest.json'))['version'])")
-          echo "tag=$tag manifest=$manifest"
-          if [ "$tag" != "$manifest" ]; then
-            echo "::error::tag $tag does not match manifest version $manifest"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            asked="${{ inputs.version }}"
+            asked="${asked#v}"
+            version="${asked:-$manifest}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "asked for: $version   manifest says: $manifest"
+          if [ "$version" != "$manifest" ]; then
+            echo "::error::version $version does not match manifest version $manifest"
             exit 1
           fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
       # build_mcpb.py uses only the standard library, so there is nothing to install.
       - name: Build the extension
@@ -50,9 +68,12 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          # gh creates the tag from the current commit when it does not exist,
+          # which is what makes the Run-workflow button work.
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/qa-copilot-*.mcpb \
-            --title "QA Copilot $GITHUB_REF_NAME" \
+          gh release create "$TAG" dist/qa-copilot-*.mcpb \
+            --title "QA Copilot $TAG" \
             --notes "Download the \`.mcpb\` below and double-click it to install into Claude Desktop. No terminal, no clone, no Python — it sets itself up on first run.
 
           Full instructions: [docs/INSTALL-DESKTOP.md](https://github.com/kesav-aot/qa-copilot/blob/main/docs/INSTALL-DESKTOP.md)"
