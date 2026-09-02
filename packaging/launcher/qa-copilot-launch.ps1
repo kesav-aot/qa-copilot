@@ -123,24 +123,89 @@ function Test-Runnable([string]$exe) {
     }
 }
 
-function Find-Python {
-    foreach ($name in @('py', 'python3', 'python')) {
-        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+function Get-PythonCandidates {
+    # 'py -3' first: the Windows launcher knows where every install lives, and
+    # picks the newest, which the bare 'python' on PATH may not be.
+    $out = @()
+    foreach ($spec in @(@('py', '-3'), @('python', ''), @('python3', ''))) {
+        $cmd = Get-Command $spec[0] -ErrorAction SilentlyContinue
         if (-not $cmd) { continue }
-        try {
-            $out = & $cmd.Source -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
-        } catch { continue }
-        if ($LASTEXITCODE -ne 0 -or -not $out) { continue }
-        $parts = "$out".Trim().Split('.')
-        if ($parts.Count -lt 2) { continue }
-        $major = 0; $minor = 0
-        [void][int]::TryParse($parts[0], [ref]$major)
-        [void][int]::TryParse($parts[1], [ref]$minor)
-        if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 11)) {
-            return $cmd.Source
-        }
+        $source = $cmd.Source
+        if (-not $source) { $source = $cmd.Path }
+        if (-not $source) { continue }
+        # Objects, not nested arrays. PowerShell unwraps a single-element array
+        # of arrays, and the loop below then iterates the characters of the path
+        # instead of the candidates - it tried to run a command called "/".
+        $out += [pscustomobject]@{ Exe = $source; Selector = $spec[1] }
     }
-    return $null
+    return $out
+}
+
+function New-Environment([string]$target) {
+    <#
+      Create the virtualenv with whatever Python this machine already has.
+
+      Rather than probing versions first and then using the winner, this asks
+      each candidate to build the environment and then asks the environment
+      itself how old it is. Probing was the fragile part: a machine with Python
+      3.14 on its PATH still reported nothing usable, and the code said only
+      "install Python", which was both wrong and unactionable.
+
+      Every attempt is logged. A launcher that fails silently costs a release
+      to diagnose.
+    #>
+    $candidates = @(Get-PythonCandidates)
+    if ($candidates.Count -eq 0) {
+        Write-Log '  no python, python3 or py found on PATH'
+        return $false
+    }
+    foreach ($candidate in @($candidates)) {
+        $exe = $candidate.Exe
+        $selector = $candidate.Selector
+        $shown = if ($selector) { "$exe $selector" } else { $exe }
+        Write-Log "  trying $shown"
+        try {
+            if ($selector) {
+                & $exe $selector -m venv $target 2>&1 |
+                    ForEach-Object { [Console]::Error.WriteLine("    $_") }
+            } else {
+                & $exe -m venv $target 2>&1 |
+                    ForEach-Object { [Console]::Error.WriteLine("    $_") }
+            }
+        } catch {
+            Write-Log "  $shown could not run: $($_.Exception.Message)"
+            continue
+        }
+        # Both layouts, so this function can be exercised off Windows. None of
+        # this has been testable before now, and that has cost four releases.
+        $created = Join-Path $target 'Scripts\python.exe'
+        if (-not (Test-Path $created -PathType Leaf)) {
+            $created = Join-Path $target 'bin/python'
+        }
+        if (-not (Test-Path $created -PathType Leaf)) {
+            Write-Log "  $shown did not produce an environment"
+            continue
+        }
+        # Ask the environment itself, so there is no second guess about which
+        # interpreter ended up inside it.
+        $ver = ''
+        try {
+            $ver = & $created -c "import sys; print(str(sys.version_info[0]) + '.' + str(sys.version_info[1]))" 2>&1
+        } catch { }
+        $parts = "$ver".Trim().Split('.')
+        $major = 0; $minor = 0
+        if ($parts.Count -ge 2) {
+            [void][int]::TryParse($parts[0], [ref]$major)
+            [void][int]::TryParse($parts[1], [ref]$minor)
+        }
+        if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 11)) {
+            Write-Log "  using Python $major.$minor from $shown"
+            return $true
+        }
+        Write-Log "  $shown is Python $major.$minor; 3.11 or later is needed"
+        Remove-Item -Recurse -Force $target -ErrorAction SilentlyContinue
+    }
+    return $false
 }
 
 function Find-Uv {
@@ -159,19 +224,20 @@ function Find-Uv {
 
 # --- 2. the environment -----------------------------------------------------
 if (-not (Test-Path $py -PathType Leaf)) {
-    $systemPython = Find-Python
-    if ($systemPython) {
-        Write-Log 'first run: preparing a private environment'
-        try {
-            & $systemPython -m venv $venv 2>&1 | ForEach-Object { [Console]::Error.WriteLine($_) }
-        } catch {
-            Stop-WithError "could not create the Python environment: $($_.Exception.Message)"
-        }
-    } else {
-        # No suitable Python: fetch uv, which brings its own.
+    Write-Log 'first run: preparing a private environment'
+    if (-not (New-Environment $venv)) {
+        # Nothing usable is installed, so fetch a runtime that brings its own.
         $uv = Find-Uv
         if (-not $uv) {
-            Write-Log 'first run: fetching the uv runtime installer (a few seconds)'
+            foreach ($stale in @((Join-Path $runtime 'bin\uv.exe'), (Join-Path $runtime 'uv.exe'))) {
+                if (Test-Path $stale -PathType Leaf) {
+                    # It is present and will not run; leaving it there means the
+                    # installer writes next to a file that already failed.
+                    Write-Log '  discarding a uv that will not run'
+                    Remove-Item -Force $stale -ErrorAction SilentlyContinue
+                }
+            }
+            Write-Log 'fetching the uv runtime installer (a few seconds)'
             New-Item -ItemType Directory -Force -Path (Join-Path $runtime 'bin') | Out-Null
             $env:UV_UNMANAGED_INSTALL = Join-Path $runtime 'bin'
             try {
@@ -180,12 +246,13 @@ if (-not (Test-Path $py -PathType Leaf)) {
                 Stop-WithError "could not install uv: $($_.Exception.Message)"
             }
             $uv = Find-Uv
-            if (-not $uv) {
-                Stop-WithError ("uv was downloaded but will not run. Install Python 3.11 " +
-                                "or later from python.org and start Claude Desktop again.")
-            }
         }
-        Write-Log 'first run: preparing a private Python 3.12 (about a minute)'
+        if (-not $uv) {
+            Stop-WithError ("no usable Python was found and uv will not run on this " +
+                            "machine. Install Python 3.11 or later from python.org, " +
+                            "tick 'Add python.exe to PATH', then restart Claude Desktop.")
+        }
+        Write-Log 'preparing a private Python 3.12 (about a minute)'
         try {
             & $uv venv --python 3.12 $venv 2>&1 | ForEach-Object { [Console]::Error.WriteLine($_) }
         } catch {
