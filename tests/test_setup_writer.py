@@ -129,3 +129,47 @@ def test_an_empty_allow_list_means_everything_and_is_not_narrowed(tmp_path):
     path = tmp_path / "settings.yaml"
     path.write_text("policy:\n  allowed_environments: []\n")
     assert not allow_environment(path, "qa")
+
+
+def test_an_empty_inline_mapping_can_be_appended_to(tmp_path):
+    """The bug that broke every fresh install.
+
+    The packaged defaults ship `environments: {}` — deliberately, so a new
+    install knows about nobody's applications. Indented entries cannot be
+    appended under a key that already has an inline value, so the result was
+    invalid YAML and the write was refused. Nobody could add their first
+    environment at all; the setup page reported "nothing was changed".
+    """
+    import yaml
+
+    path = tmp_path / "environments.yaml"
+    path.write_text("# a comment\nenvironments: {}\n")
+
+    append_under_key(path, "environments", "local", {"base_url": "http://localhost:3000"})
+    append_under_key(path, "environments", "staging", {"base_url": "https://staging.example"})
+
+    loaded = yaml.safe_load(path.read_text())["environments"]
+    assert list(loaded) == ["local", "staging"]
+    assert loaded["local"]["base_url"] == "http://localhost:3000"
+    assert "# a comment" in path.read_text(), "the rest of the file must survive"
+
+
+def test_an_empty_inline_list_is_handled_the_same_way(tmp_path):
+    import yaml
+
+    path = tmp_path / "suites.yaml"
+    path.write_text("suites: []\n")
+    append_under_key(path, "suites", "smoke", {"plans": ["a"]})
+    assert list(yaml.safe_load(path.read_text())["suites"]) == ["smoke"]
+
+
+def test_a_key_with_real_entries_is_untouched(tmp_path):
+    """The substitution must not disturb a file that was already populated."""
+    import yaml
+
+    path = tmp_path / "environments.yaml"
+    path.write_text("environments:\n  demo:\n    base_url: http://x\n")
+    append_under_key(path, "environments", "local", {"base_url": "http://y"})
+    loaded = yaml.safe_load(path.read_text())["environments"]
+    assert list(loaded) == ["demo", "local"]
+    assert loaded["demo"]["base_url"] == "http://x"

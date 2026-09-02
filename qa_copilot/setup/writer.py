@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+import re
+
 import yaml
 
 
@@ -44,6 +46,18 @@ def append_under_key(path: Path, top_key: str, entry_name: str, body: dict[str, 
     updated = original if original.endswith("\n") or not original else original + "\n"
     if top_key not in parsed:
         updated += f"\n{top_key}:\n"
+    else:
+        # A key written as an explicit empty mapping - "environments: {}" - cannot
+        # have indented entries appended under it; the result is not valid YAML.
+        # A fresh install ships exactly that, so without this every first
+        # environment anyone tried to add was refused.
+        updated = re.sub(
+            rf"^{re.escape(top_key)}:[ \t]*(\{{[ \t]*\}}|\[[ \t]*\])[ \t]*$",
+            f"{top_key}:",
+            updated,
+            count=1,
+            flags=re.MULTILINE,
+        )
     updated += addition
 
     try:
