@@ -106,48 +106,107 @@ for ($i = 0; $i -lt 300; $i++) {
 }
 function Release-Lock { if ($haveLock) { Remove-Item -Recurse -Force $lock -ErrorAction SilentlyContinue } }
 
-# --- 1. uv ------------------------------------------------------------------
-# uv provisions its own CPython. Windows may have no Python at all, and the one
-# from the Microsoft Store shims in ways that break virtualenvs.
+# --- 1. an interpreter ------------------------------------------------------
+# Prefer a Python that is already on the machine. Windows very often has one,
+# and downloading a runtime installer to reach an interpreter that is already
+# there is both slow and an extra thing to go wrong - it went wrong: a uv.exe
+# that had been written but was not a runnable image failed with "cannot run a
+# document in the middle of a pipeline", and nothing was catching it.
+
+function Test-Runnable([string]$exe) {
+    # A file can exist, and still not be something Windows will execute.
+    try {
+        & $exe --version 2>&1 | Out-Null
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
+    }
+}
+
+function Find-Python {
+    foreach ($name in @('py', 'python3', 'python')) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if (-not $cmd) { continue }
+        try {
+            $out = & $cmd.Source -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
+        } catch { continue }
+        if ($LASTEXITCODE -ne 0 -or -not $out) { continue }
+        $parts = "$out".Trim().Split('.')
+        if ($parts.Count -lt 2) { continue }
+        $major = 0; $minor = 0
+        [void][int]::TryParse($parts[0], [ref]$major)
+        [void][int]::TryParse($parts[1], [ref]$minor)
+        if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 11)) {
+            return $cmd.Source
+        }
+    }
+    return $null
+}
+
 function Find-Uv {
     foreach ($candidate in @(
         (Join-Path $runtime 'bin\uv.exe'),
         (Join-Path $runtime 'uv.exe')
     )) {
-        if (Test-Path $candidate) { return $candidate }
+        if ((Test-Path $candidate -PathType Leaf) -and (Test-Runnable $candidate)) {
+            return $candidate
+        }
     }
     $onPath = Get-Command uv -ErrorAction SilentlyContinue
-    if ($onPath) { return $onPath.Source }
+    if ($onPath -and (Test-Runnable $onPath.Source)) { return $onPath.Source }
     return $null
 }
 
-$uv = Find-Uv
-if (-not $uv) {
-    Write-Log 'first run: fetching the uv runtime installer (a few seconds)'
-    New-Item -ItemType Directory -Force -Path (Join-Path $runtime 'bin') | Out-Null
-    $env:UV_UNMANAGED_INSTALL = Join-Path $runtime 'bin'
-    try {
-        Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
-    } catch {
-        Stop-WithError "could not install uv: $($_.Exception.Message)"
+# --- 2. the environment -----------------------------------------------------
+if (-not (Test-Path $py -PathType Leaf)) {
+    $systemPython = Find-Python
+    if ($systemPython) {
+        Write-Log 'first run: preparing a private environment'
+        try {
+            & $systemPython -m venv $venv 2>&1 | ForEach-Object { [Console]::Error.WriteLine($_) }
+        } catch {
+            Stop-WithError "could not create the Python environment: $($_.Exception.Message)"
+        }
+    } else {
+        # No suitable Python: fetch uv, which brings its own.
+        $uv = Find-Uv
+        if (-not $uv) {
+            Write-Log 'first run: fetching the uv runtime installer (a few seconds)'
+            New-Item -ItemType Directory -Force -Path (Join-Path $runtime 'bin') | Out-Null
+            $env:UV_UNMANAGED_INSTALL = Join-Path $runtime 'bin'
+            try {
+                Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
+            } catch {
+                Stop-WithError "could not install uv: $($_.Exception.Message)"
+            }
+            $uv = Find-Uv
+            if (-not $uv) {
+                Stop-WithError ("uv was downloaded but will not run. Install Python 3.11 " +
+                                "or later from python.org and start Claude Desktop again.")
+            }
+        }
+        Write-Log 'first run: preparing a private Python 3.12 (about a minute)'
+        try {
+            & $uv venv --python 3.12 $venv 2>&1 | ForEach-Object { [Console]::Error.WriteLine($_) }
+        } catch {
+            Stop-WithError "could not create the Python environment: $($_.Exception.Message)"
+        }
     }
-    $uv = Find-Uv
-    if (-not $uv) { Stop-WithError "uv did not install under $runtime" }
-}
-
-# --- 2. interpreter + dependencies -----------------------------------------
-if (-not (Test-Path $py)) {
-    Write-Log 'first run: preparing a private Python 3.12 (about a minute)'
-    & $uv venv --python 3.12 $venv 2>&1 | ForEach-Object { [Console]::Error.WriteLine($_) }
-    if (-not (Test-Path $py)) { Stop-WithError 'could not create the Python environment' }
+    if (-not (Test-Path $py -PathType Leaf)) {
+        Stop-WithError "the Python environment was not created at $venv"
+    }
 }
 
 $installed = ''
 if (Test-Path $stamp) { $installed = (Get-Content $stamp -Raw).Trim() }
 if ($installed -ne $version) {
     Write-Log "installing QA Copilot $version"
-    & $uv pip install --python $py --quiet $src 2>&1 |
-        ForEach-Object { [Console]::Error.WriteLine($_) }
+    try {
+        & $py -m pip install --quiet --upgrade pip 2>&1 | Out-Null
+        & $py -m pip install --quiet $src 2>&1 | ForEach-Object { [Console]::Error.WriteLine($_) }
+    } catch {
+        Stop-WithError "could not install QA Copilot's dependencies: $($_.Exception.Message)"
+    }
     if ($LASTEXITCODE -ne 0) { Stop-WithError "could not install QA Copilot's dependencies" }
     Set-Content -Path $stamp -Value $version -NoNewline
 }

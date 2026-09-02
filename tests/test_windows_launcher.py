@@ -70,3 +70,62 @@ def test_powershell_7_only_syntax_is_absent():
     code = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
     for token in ("??", "&&", "||"):
         assert token not in code, f"{token} needs PowerShell 7; 5.1 is the target"
+
+
+# --- an actual PowerShell parse, when one is available ----------------------
+# Every Windows failure so far reached the user because nothing here could run
+# PowerShell. If a pwsh is present, use it: a real parse is worth more than
+# every heuristic in this file put together.
+
+
+def _pwsh() -> str | None:
+    import shutil
+
+    for name in ("pwsh", "powershell"):
+        found = shutil.which(name)
+        if found:
+            return found
+    for candidate in Path("/private/tmp").glob("**/pwsh/pwsh"):
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+def test_it_parses_under_real_powershell():
+    import subprocess
+
+    pwsh = _pwsh()
+    if not pwsh:
+        import pytest
+
+        pytest.skip("no PowerShell available to parse with")
+
+    script = (
+        "$e = $null; "
+        f"[System.Management.Automation.Language.Parser]::ParseFile('{PS1}', "
+        "[ref]$null, [ref]$e) | Out-Null; "
+        "if ($e) { $e | ForEach-Object { "
+        "Write-Output ('line ' + $_.Extent.StartLineNumber + ': ' + $_.Message) }; exit 1 }"
+    )
+    result = subprocess.run(
+        [pwsh, "-NoProfile", "-Command", script], capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == 0, f"PowerShell will not parse it:\n{result.stdout}"
+
+
+def test_native_calls_are_guarded():
+    """`& $uv venv ...` was unguarded, so a uv.exe that existed but would not
+    run killed the script with 'cannot run a document in the middle of a
+    pipeline' — an error a try/catch does catch."""
+    text = PS1.read_bytes()[len(BOM):].decode("utf-8")
+    assert "function Test-Runnable" in text, "an executable must be proved to run"
+    assert "Test-Path $candidate -PathType Leaf" in text, "a directory is not a binary"
+    for call in ("& $uv venv", "& $systemPython -m venv", "& $py -m pip install"):
+        index = text.index(call)
+        preceding = text[max(0, index - 400) : index]
+        assert "try {" in preceding, f"{call} is not inside a try block"
+
+
+def test_an_installed_python_is_preferred_over_downloading_a_runtime():
+    text = PS1.read_bytes()[len(BOM):].decode("utf-8")
+    assert text.index("Find-Python") < text.index("fetching the uv runtime installer")
