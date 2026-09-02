@@ -203,3 +203,40 @@ def test_an_old_python_is_rejected_with_its_version_named(tmp_path):
     result = _run_pwsh(f"New-Environment '{tmp_path / 'env'}' | Out-Null")
     combined = result.stdout + result.stderr
     assert "trying" in combined, f"every attempt must be logged:\n{combined}"
+
+
+def test_python_is_looked_for_where_it_lives_not_only_on_path():
+    """The failure: Desktop logged ...\\Programs\\Python\\Python314 in its own
+    PATH, but the powershell.exe it spawned did not have it, so Get-Command
+    found no Python at all. A per-user install writes the *user* PATH, and a
+    child started from a differently-scoped environment does not see it."""
+    text = PS1.read_bytes()[len(BOM):].decode("utf-8")
+    assert "PythonCore" in text, "the registry records where Python installed itself"
+    assert "Programs\\Python" in text, "and the standard per-user install folder"
+    assert text.index("PythonCore") < text.index("Get-Command $name"), (
+        "PATH must be the fallback, not the first thing tried"
+    )
+
+
+def test_windowsapps_stubs_are_ignored():
+    """Those are zero-byte execution aliases that open the Microsoft Store."""
+    text = PS1.read_bytes()[len(BOM):].decode("utf-8")
+    assert "WindowsApps" in text and "return }" in text
+
+
+def test_no_join_path_is_given_a_variable_that_may_be_unset():
+    """Join-Path throws on a null path, and a stripped environment is exactly
+    the case this code exists to survive — found by running it with env -i."""
+    text = PS1.read_bytes()[len(BOM):].decode("utf-8")
+    for line_number, line in enumerate(text.splitlines(), 1):
+        if "Join-Path $env:" not in line:
+            continue
+        variable = line.split("Join-Path $env:")[1].split()[0].strip("'\")}")
+        guarded = f"if ($env:{variable})" in text or f"if (${{env:{variable}}})" in text
+        assert guarded, f"line {line_number} uses $env:{variable} unguarded"
+
+
+def test_the_path_it_actually_saw_is_logged_on_failure():
+    """So the next failure arrives with the evidence instead of a guess."""
+    text = PS1.read_bytes()[len(BOM):].decode("utf-8")
+    assert "PATH seen by this process" in text

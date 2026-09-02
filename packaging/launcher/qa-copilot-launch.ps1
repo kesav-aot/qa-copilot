@@ -72,7 +72,15 @@ if (Test-Path $versionFile) {
 }
 
 $homeDir = Get-Setting 'QA_COPILOT_HOME'
-if (-not $homeDir) { $homeDir = Join-Path $env:USERPROFILE '.qa-copilot' }
+if (-not $homeDir) {
+    # Not $env:USERPROFILE: Join-Path throws if it is unset, and this process is
+    # started by another application with an environment we do not control.
+    $profileDir = [Environment]::GetFolderPath('UserProfile')
+    if (-not $profileDir) { $profileDir = $env:USERPROFILE }
+    if (-not $profileDir) { $profileDir = "$env:HOMEDRIVE$env:HOMEPATH" }
+    if (-not $profileDir) { Stop-WithError 'cannot work out your home folder' }
+    $homeDir = Join-Path $profileDir '.qa-copilot'
+}
 New-Item -ItemType Directory -Force -Path $homeDir | Out-Null
 
 $runtime = Join-Path $homeDir 'runtime'
@@ -124,20 +132,95 @@ function Test-Runnable([string]$exe) {
 }
 
 function Get-PythonCandidates {
-    # 'py -3' first: the Windows launcher knows where every install lives, and
-    # picks the newest, which the bare 'python' on PATH may not be.
-    $out = @()
-    foreach ($spec in @(@('py', '-3'), @('python', ''), @('python3', ''))) {
-        $cmd = Get-Command $spec[0] -ErrorAction SilentlyContinue
-        if (-not $cmd) { continue }
-        $source = $cmd.Source
-        if (-not $source) { $source = $cmd.Path }
-        if (-not $source) { continue }
-        # Objects, not nested arrays. PowerShell unwraps a single-element array
-        # of arrays, and the loop below then iterates the characters of the path
-        # instead of the candidates - it tried to run a command called "/".
-        $out += [pscustomobject]@{ Exe = $source; Selector = $spec[1] }
+    <#
+      Find every Python this machine has, without trusting PATH.
+
+      PATH is the trap. Claude Desktop logs the PATH it resolved for itself,
+      which included ...\Programs\Python\Python314 - but the powershell.exe it
+      spawns did not have it, and Get-Command found no python at all. A per-user
+      Python install writes to the *user* PATH, and a child process started from
+      a differently-scoped environment does not see it.
+
+      So: ask the registry, which is where installers record themselves, look in
+      the standard install directories, and only then fall back to PATH.
+    #>
+    $found = New-Object System.Collections.Generic.List[string]
+
+    function Add-Candidate([string]$path) {
+        if (-not $path) { return }
+        if (-not (Test-Path $path -PathType Leaf)) { return }
+        # WindowsApps holds zero-byte execution-alias stubs that open the Store.
+        if ($path -like '*\WindowsApps\*') { return }
+        foreach ($existing in $found) {
+            if ($existing -ieq $path) { return }
+        }
+        $found.Add($path)
     }
+
+    # 1. The registry, where Python's installer records InstallPath.
+    foreach ($root in @('HKCU:\Software\Python\PythonCore',
+                        'HKLM:\Software\Python\PythonCore',
+                        'HKLM:\Software\WOW6432Node\Python\PythonCore')) {
+        try {
+            Get-ChildItem $root -ErrorAction Stop | ForEach-Object {
+                try {
+                    $dir = (Get-ItemProperty (Join-Path $_.PSPath 'InstallPath') `
+                            -ErrorAction Stop).'(default)'
+                    Add-Candidate (Join-Path $dir 'python.exe')
+                } catch { }
+            }
+        } catch { }
+    }
+
+    # 2. The usual install directories, newest first.
+    $roots = @()
+    if ($env:LOCALAPPDATA) { $roots += (Join-Path $env:LOCALAPPDATA 'Programs\Python') }
+    if ($env:ProgramFiles) { $roots += $env:ProgramFiles }
+    if (${env:ProgramFiles(x86)}) { $roots += ${env:ProgramFiles(x86)} }
+    foreach ($root in $roots) {
+        try {
+            Get-ChildItem $root -Directory -Filter 'Python3*' -ErrorAction Stop |
+                Sort-Object Name -Descending |
+                ForEach-Object { Add-Candidate (Join-Path $_.FullName 'python.exe') }
+        } catch { }
+    }
+
+    # 3. PATH, last, because it is the thing that was missing.
+    foreach ($name in @('python', 'python3')) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($cmd) {
+            $source = $cmd.Source
+            if (-not $source) { $source = $cmd.Path }
+            Add-Candidate $source
+        }
+    }
+
+    $out = @()
+    foreach ($exe in $found) {
+        $out += [pscustomobject]@{ Exe = $exe; Selector = '' }
+    }
+
+    # The py launcher can pick an install none of the above located, so keep it
+    # as a last resort, with an explicit version selector.
+    # Built one at a time, and only from variables that are set: Join-Path
+    # throws on a null path, and a stripped environment is the situation this
+    # whole function exists to survive.
+    $launchers = @()
+    if ($env:LOCALAPPDATA) {
+        $launchers += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Launcher\py.exe')
+    }
+    if ($env:WINDIR) { $launchers += (Join-Path $env:WINDIR 'py.exe') }
+    foreach ($launcher in $launchers) {
+        if (Test-Path $launcher -PathType Leaf) {
+            $out += [pscustomobject]@{ Exe = $launcher; Selector = '-3' }
+            break
+        }
+    }
+    $onPath = Get-Command py -ErrorAction SilentlyContinue
+    if ($onPath -and $onPath.Source) {
+        $out += [pscustomobject]@{ Exe = $onPath.Source; Selector = '-3' }
+    }
+
     return $out
 }
 
@@ -156,7 +239,8 @@ function New-Environment([string]$target) {
     #>
     $candidates = @(Get-PythonCandidates)
     if ($candidates.Count -eq 0) {
-        Write-Log '  no python, python3 or py found on PATH'
+        Write-Log '  found no Python in the registry, the usual install folders, or PATH'
+        Write-Log ('  PATH seen by this process: ' + "$env:PATH")
         return $false
     }
     foreach ($candidate in @($candidates)) {
