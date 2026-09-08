@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 from qa_copilot.config import Environment, LoginRecipe
 from qa_copilot.secrets.env import ref_to_env_var
-from qa_copilot.setup.discover import discover_login, find_error_target
+from qa_copilot.setup.discover import discover_login, find_error_target, sign_in_url
 from qa_copilot.setup.writer import (
     ConfigWriteError,
     allow_environment,
@@ -144,7 +144,7 @@ async def run_wizard(
     login_path = login_path or _ask(
         "Where is the sign-in page?", urlparse(url).path or "/login", reader=reader
     )
-    if not login_path.startswith("/"):
+    if not login_path.startswith(("/", "http://", "https://")):
         login_path = "/" + login_path
 
     # --- look at the page -------------------------------------------------
@@ -158,7 +158,7 @@ async def run_wizard(
     )
     try:
         found = await discover_login(
-            session.page, base + login_path, timeout_ms=setup_timeout_ms
+            session.page, sign_in_url(base, login_path), timeout_ms=setup_timeout_ms
         )
 
         if not found.complete:
@@ -264,7 +264,7 @@ async def run_wizard(
                 f"{seconds} seconds.{RESET}"
             )
             _say(f"  The browser is on: {landed_on}")
-            if landed_on.rstrip("/") != (base + login_path).rstrip("/"):
+            if landed_on.rstrip("/") != (sign_in_url(base, login_path)).rstrip("/"):
                 _say(f"{RED}  That is not the address the form was found on.{RESET}")
                 _say("  The page sent the browser somewhere else - a sign-in URL")
                 _say("  that needs query parameters, or a session that changed.")
@@ -310,7 +310,7 @@ async def run_wizard(
         # must not cost the setup that has otherwise just succeeded.
         failure_target = None
         try:
-            await session.page.goto(base + login_path, wait_until="domcontentloaded")
+            await session.page.goto(sign_in_url(base, login_path), wait_until="domcontentloaded")
             await _fill(session.page, found.username.target, username, probe_timeout_ms)
             await _fill(
                 session.page, found.password.target, "deliberately-wrong-" + "x" * 8,

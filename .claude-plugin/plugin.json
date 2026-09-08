@@ -1,6 +1,6 @@
 {
   "name": "qa-copilot",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Secret-blind QA automation. Plan tests against identity aliases; a trusted local layer resolves credentials and drives the browser.",
   "author": {
     "name": "QA Copilot"

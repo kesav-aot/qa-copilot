@@ -160,7 +160,9 @@ class SetupSession:
         if not app_url.startswith(("http://", "https://")):
             app_url = "https://" + app_url
         login_path = (form.get("login_path") or "/login").strip() or "/login"
-        if not login_path.startswith("/"):
+        # An absolute address is left alone: with single sign-on the form lives
+        # on the identity provider, not on the application.
+        if not login_path.startswith(("/", "http://", "https://")):
             login_path = "/" + login_path
 
         try:
@@ -411,7 +413,7 @@ async def _look_at_login(app_url: str, login_path: str, timeout_ms: int = 60_000
 
     from qa_copilot.config import Environment
     from qa_copilot.executor.browser import open_session
-    from qa_copilot.setup.discover import discover_login
+    from qa_copilot.setup.discover import discover_login, sign_in_url
 
     parsed = urlparse(app_url)
     base = f"{parsed.scheme}://{parsed.netloc}"
@@ -422,7 +424,7 @@ async def _look_at_login(app_url: str, login_path: str, timeout_ms: int = 60_000
         timeout_ms=timeout_ms,
     )
     try:
-        return await discover_login(session.page, base + login_path, timeout_ms=timeout_ms)
+        return await discover_login(session.page, sign_in_url(base, login_path), timeout_ms=timeout_ms)
     finally:
         await session.close()
 
@@ -788,7 +790,8 @@ allowed to do, never the credential.</div>
       <span class="h">A short word you will use in tests</span>
       <input type="text" name="environment" value="local"></label>
     <label class="f"><span class="t">Sign-in page</span>
-      <span class="h">The part after the address</span>
+      <span class="h">The part after the address, or a full address if
+      sign-in happens somewhere else</span>
       <input type="text" name="login_path" value="/login"></label>
   </div>
 

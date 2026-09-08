@@ -120,6 +120,22 @@ def _target_for(info: dict[str, Any], *, is_button: bool) -> Found:
     return Found(Target(css=info.get("tag", "input")), "position on the page (fragile)", info)
 
 
+def sign_in_url(base_url: str, login_path: str) -> str:
+    """Where the sign-in form is.
+
+    Single sign-on puts it on another host: the application is one address and
+    the identity provider is another. Joining them would produce nonsense, and
+    the only way round it was to enter the provider as the application - which
+    then sends every later "go to /page" to the wrong host. So an absolute
+    address is taken as given. The executor already accepts one.
+    """
+    if login_path.startswith(("http://", "https://")):
+        return login_path
+    if not login_path.startswith("/"):
+        login_path = "/" + login_path
+    return base_url.rstrip("/") + login_path
+
+
 async def discover_login(page, url: str, timeout_ms: int = 60_000) -> LoginDiscovery:
     """Open ``url`` and find the username field, password field and submit button."""
     from qa_copilot.executor.resolver import page_inventory

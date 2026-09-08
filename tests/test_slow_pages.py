@@ -189,3 +189,33 @@ async def test_the_form_is_not_reloaded_before_it_is_filled(workspace, demo_serv
     code, said = await _wizard_output(workspace, demo_server, "/once-login", 20_000)
     assert code == 0, said[-700:]
     assert "QA_SECRET__TARGET__ADMIN__PASSWORD" in (workspace / ".env").read_text()
+
+
+def test_setup_accepts_an_absolute_sign_in_address(workspace, demo_server):
+    # Synchronous on purpose: provision() calls asyncio.run() itself, which
+    # cannot be nested inside a running loop.
+    """The application on one address and the sign-in form on another, which is
+    what single sign-on looks like."""
+    import yaml
+
+    from qa_copilot.setup import webui
+
+    session = webui.SetupSession(workspace / "config", workspace / ".env", workspace)
+    absolute = f"{demo_server}/login?client_id=web&state=abc"
+    result = session.provision(
+        {
+            "app_url": "http://localhost:8099",
+            "login_path": absolute,
+            "environment": "sso",
+            "account": "designer",
+            "capabilities": "browse",
+            "username": USERNAME,
+            "password": PASSWORD,
+        }
+    )
+    assert result["state"] == "done", result["detail"][-400:]
+
+    environments = yaml.safe_load((workspace / "config" / "environments.yaml").read_text())
+    entry = environments["environments"]["sso"]
+    assert entry["base_url"] == "http://localhost:8099", "the app keeps its own address"
+    assert entry["login"]["path"] == absolute, "and the form keeps the one it was given"

@@ -99,3 +99,33 @@ async def test_hidden_fields_are_not_asked_for(browser):
     """A CSRF token is not a credential a person can be asked to type."""
     found = await discover_login(browser.page, (FIXTURES / "pin-login.html").as_uri())
     assert "csrf" not in found.extras
+
+
+# --- where the sign-in form actually lives -----------------------------------
+
+
+def test_a_relative_sign_in_path_hangs_off_the_application():
+    from qa_copilot.setup.discover import sign_in_url
+
+    assert sign_in_url("https://app.example.com", "/login") == "https://app.example.com/login"
+    assert sign_in_url("https://app.example.com/", "login") == "https://app.example.com/login"
+    assert (
+        sign_in_url("http://localhost:3000", "/auth?a=1&b=2")
+        == "http://localhost:3000/auth?a=1&b=2"
+    ), "a query string is part of the address, not something to strip"
+
+
+def test_an_absolute_sign_in_address_is_taken_as_given():
+    """Single sign-on puts the form on another host.
+
+    Joining the two produced nonsense - "https://app.example.comhttps://idm..."
+    - and the only way round it was to enter the identity provider as the
+    application, which then sent every later "go to /page" to the wrong host.
+    """
+    from qa_copilot.setup.discover import sign_in_url
+
+    idm = "https://idm.example.com/auth/realms/x/protocol/openid-connect/auth?client_id=y"
+    assert sign_in_url("https://app.example.com", idm) == idm
+    assert sign_in_url("https://app.example.com", "http://idm.local/login") == (
+        "http://idm.local/login"
+    )
