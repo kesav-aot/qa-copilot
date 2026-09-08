@@ -146,29 +146,46 @@ def test_the_packaged_defaults_document_both_knobs():
     assert "setup_timeout_ms:" in text
 
 
-async def test_a_timeout_is_explained_not_dumped(workspace, demo_server):
-    """The reported failure was a raw Playwright message naming a field, which
-    reads as though the credentials were wrong rather than the page slow."""
-    answers = iter(["y", "admin", "browse", USERNAME])
-    from io import StringIO
+async def _wizard_output(workspace, demo_server, login_path: str, timeout_ms: int):
     import contextlib
+    from io import StringIO
 
+    answers = iter(["y", "admin", "browse", USERNAME])
     narration = StringIO()
     with contextlib.redirect_stdout(narration):
         code = await run_wizard(
             config_dir=workspace / "config",
             url=demo_server,
-            environment="slow",
-            login_path="/slow-login",
+            environment="target",
+            login_path=login_path,
             headless=True,
             secrets_file=workspace / ".env",
             work_dir=workspace,
             reader=lambda _p="": next(answers),
             password_reader=lambda _p="": PASSWORD,
-            setup_timeout_ms=1_500,
+            setup_timeout_ms=timeout_ms,
         )
-    said = narration.getvalue()
+    return code, narration.getvalue()
+
+
+async def test_a_timeout_is_explained_not_dumped(workspace, demo_server):
+    """The reported failure was a raw Playwright message naming a field, which
+    reads as though the credentials were wrong rather than the field missing."""
+    code, said = await _wizard_output(workspace, demo_server, "/never-visible-login", 2_000)
     assert code != 0
-    assert "did not become usable" in said, said[-400:]
-    assert "setup_timeout_ms" in said, "and it must name the setting to change"
-    assert "Locator.fill" not in said, "a raw Playwright message is not an explanation"
+    assert "did not become usable" in said, said[-500:]
+    assert "Locator" not in said, "a raw Playwright message is not an explanation"
+    assert "what is on that page now" in said.lower(), (
+        "and it must show what IS there, which is how a dead end becomes an edit"
+    )
+
+
+async def test_the_form_is_not_reloaded_before_it_is_filled(workspace, demo_server):
+    """The reported failure. An OIDC authorisation endpoint needs fresh
+    parameters, so asking for the bare path a second time returns an error page.
+    Setup found the form, reloaded the same address, and then waited sixty
+    seconds for fields that were no longer on the page.
+    """
+    code, said = await _wizard_output(workspace, demo_server, "/once-login", 20_000)
+    assert code == 0, said[-700:]
+    assert "QA_SECRET__TARGET__ADMIN__PASSWORD" in (workspace / ".env").read_text()

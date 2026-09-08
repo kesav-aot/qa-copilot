@@ -157,7 +157,9 @@ async def run_wizard(
         probe_env, Path("artifacts"), headless=headless, timeout_ms=setup_timeout_ms
     )
     try:
-        found = await discover_login(session.page, base + login_path)
+        found = await discover_login(
+            session.page, base + login_path, timeout_ms=setup_timeout_ms
+        )
 
         if not found.complete:
             _say(f"{RED}  I could not work out the sign-in form.{RESET}")
@@ -221,7 +223,12 @@ async def run_wizard(
         # --- prove it works ---------------------------------------------------
         _say()
         _say("  Checking those details work …")
-        await session.page.goto(base + login_path, wait_until="domcontentloaded")
+        # Deliberately not reloading. Discovery has this page open and has just
+        # found the fields on it; going back to the same address asks the server
+        # for it a second time, and plenty of sign-in URLs do not answer twice
+        # the same way. A Keycloak openid-connect/auth endpoint needs fresh
+        # parameters and answers a bare second visit with an error page, so the
+        # fields that had just been found were no longer there to fill.
         from qa_copilot.executor.resolver import resolve
 
         if found.extras and not extra_values:
@@ -235,6 +242,9 @@ async def run_wizard(
             return 2
 
         extras = {k: v for k, v in (extra_values or {}).items() if k in found.extras}
+        # The wrong-password probe is optional, so it does not deserve the
+        # full budget: a page that will not serve it again should cost seconds.
+        probe_timeout_ms = min(setup_timeout_ms, 10_000)
         try:
             await _fill(session.page, found.username.target, username, setup_timeout_ms)
             await _fill(session.page, found.password.target, password, setup_timeout_ms)
@@ -243,19 +253,35 @@ async def run_wizard(
             submit = await resolve(session.page, found.submit.target)
             await submit.first.click(timeout=setup_timeout_ms)
         except Exception as exc:
-            # A raw "Locator.fill: Timeout 30000ms exceeded" tells the reader
-            # nothing they can act on, and reads as though the credentials were
-            # rejected rather than as a page that was still loading.
+            # A raw "Locator.fill: Timeout exceeded" tells the reader nothing
+            # they can act on, and reads as though the credentials were rejected
+            # rather than as a field that was not there.
             seconds = setup_timeout_ms // 1000
+            landed_on = session.page.url
             _say()
             _say(
                 f"{RED}  The sign-in form did not become usable within "
                 f"{seconds} seconds.{RESET}"
             )
-            _say("  The page was found, so the address is right; it is either")
-            _say("  slower than that, or the form needs a step first.")
-            _say(f"{DIM}  For a slow application, raise setup_timeout_ms in{RESET}")
-            _say(f"{DIM}  config/settings.yaml and try again.{RESET}")
+            _say(f"  The browser is on: {landed_on}")
+            if landed_on.rstrip("/") != (base + login_path).rstrip("/"):
+                _say(f"{RED}  That is not the address the form was found on.{RESET}")
+                _say("  The page sent the browser somewhere else - a sign-in URL")
+                _say("  that needs query parameters, or a session that changed.")
+                _say("  Give the address of the form itself, with any parameters.")
+            else:
+                _say("  For a slower application, raise setup_timeout_ms in")
+                _say("  config/settings.yaml and try again.")
+            try:
+                from qa_copilot.executor.resolver import page_inventory, format_inventory
+
+                inventory = await page_inventory(session.page)
+                if inventory:
+                    _say()
+                    _say("  Here is what is on that page now:")
+                    _say(format_inventory(inventory))
+            except Exception:
+                pass
             _say(f"{DIM}  ({type(exc).__name__}){RESET}")
             _say(f"{DIM}  Nothing was written.{RESET}")
             return 1
@@ -278,20 +304,36 @@ async def run_wizard(
         _say(f"{GREEN}  Signed in. Landed on {landed}{RESET}")
 
         # A failed sign-in should fail fast later, so find the error element too.
-        await session.page.goto(base + login_path, wait_until="domcontentloaded")
-        await _fill(session.page, found.username.target, username, setup_timeout_ms)
-        await _fill(
-            session.page, found.password.target, "deliberately-wrong-" + "x" * 8, setup_timeout_ms
-        )
-        for name, value in extras.items():
-            await _fill(session.page, found.extras[name].target, value, setup_timeout_ms)
-        submit = await resolve(session.page, found.submit.target)
-        await submit.first.click(timeout=setup_timeout_ms)
+        # This is a convenience, not a requirement: it needs the sign-in page a
+        # second time, and a URL that only answers once - an OIDC authorisation
+        # endpoint - cannot give it. Losing it costs a slower failure later; it
+        # must not cost the setup that has otherwise just succeeded.
+        failure_target = None
+        try:
+            await session.page.goto(base + login_path, wait_until="domcontentloaded")
+            await _fill(session.page, found.username.target, username, probe_timeout_ms)
+            await _fill(
+                session.page, found.password.target, "deliberately-wrong-" + "x" * 8,
+                probe_timeout_ms,
+            )
+            for name, value in extras.items():
+                await _fill(session.page, found.extras[name].target, value, probe_timeout_ms)
+            submit = await resolve(session.page, found.submit.target)
+            await submit.first.click(timeout=probe_timeout_ms)
+        except Exception:
+            _say(
+                f"{DIM}  (could not check what a wrong password looks like; "
+                f"this page only answers once){RESET}"
+            )
+            probe_failed = True
+        else:
+            probe_failed = False
         try:
             await session.page.wait_for_load_state("networkidle", timeout=8_000)
         except Exception:
             pass
-        failure_target = await find_error_target(session.page)
+        if not probe_failed:
+            failure_target = await find_error_target(session.page)
         if failure_target is not None:
             _say(f"{DIM}  (a wrong password shows: {failure_target.summary()}){RESET}")
     finally:

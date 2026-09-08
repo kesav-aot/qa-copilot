@@ -147,6 +147,65 @@ def slow_login():
     return render("Sign in", body, error=error), (401 if error else 200)
 
 
+# A sign-in URL that answers a second visit differently, the way an OIDC
+# authorisation endpoint does: it needs fresh parameters, so asking for the bare
+# path again returns an error page instead of the form. Setup used to find the
+# form, reload the same address, and then wait for fields that were no longer
+# there.
+@app.route("/once-login", methods=["GET", "POST"])
+def once_login():
+    error = None
+    if request.method == "POST":
+        email = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        record = USERS.get(email)
+        if record and secrets.compare_digest(record["password"], password):
+            session["user"] = {"email": email, "name": record["name"], "role": record["role"]}
+            return redirect(url_for("dashboard"))
+        error = "Invalid username or password."
+        return render("Sign in", "<p class=error data-testid=login-error>{{ error }}</p>",
+                      error=error), 401
+
+    if session.get("saw_login"):
+        return render(
+            "Error",
+            "<h1>We are sorry...</h1><p>Missing parameters: client_id</p>",
+        ), 400
+    session["saw_login"] = True
+    return render(
+        "Sign in",
+        """
+          <h1>Sign in</h1>
+          <form method=post>
+            <label for=u>Username or email</label>
+            <input id=u name=username autocomplete=username>
+            <label for=p>Password</label>
+            <input id=p name=password type=password autocomplete=current-password>
+            <br><button type=submit>Sign in</button>
+          </form>
+        """,
+    )
+
+
+# A form whose username field is in the page but never becomes visible, so the
+# wait genuinely expires and the explanation has to be readable.
+@app.get("/never-visible-login")
+def never_visible_login():
+    return render(
+        "Sign in",
+        """
+          <h1>Sign in</h1>
+          <form method=post>
+            <label for=u>Username or email</label>
+            <input id=u name=username style="display:none">
+            <label for=p>Password</label>
+            <input id=p name=password type=password>
+            <br><button type=submit>Sign in</button>
+          </form>
+        """,
+    )
+
+
 @app.get("/listing")
 def listing():
     return render(
