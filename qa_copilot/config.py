@@ -127,6 +127,26 @@ class Config(Base):
     policy: PolicyConfig = Field(default_factory=PolicyConfig)
     environments: dict[str, Environment] = Field(default_factory=dict)
     identities: dict[str, Identity] = Field(default_factory=dict)
+    # Real applications are slower than a demo. A sign-in form rendered by
+    # JavaScript may not exist when the first field is filled, and the default
+    # was both fixed and short enough that setup timed out against a genuine
+    # product while working perfectly against the demo.
+    timeout_ms: int = Field(
+        default=30_000,
+        ge=1_000,
+        le=300_000,
+        description="How long to wait for an element before giving up.",
+    )
+    setup_timeout_ms: int = Field(
+        default=60_000,
+        ge=1_000,
+        le=300_000,
+        description=(
+            "How long to wait during setup, which runs against a page nobody "
+            "has described yet and so deserves more patience than a test step."
+        ),
+    )
+
     artifact_dir: str = "artifacts"
     plan_dir: str = "plans"
     testcase_dir: str = "testcases"
@@ -213,5 +233,11 @@ def load_config(directory: Path | None = None) -> Config:
         artifact_dir=settings.get("artifact_dir", "artifacts"),
         plan_dir=settings.get("plan_dir", "plans"),
         testcase_dir=settings.get("testcase_dir", "testcases"),
+        # Every field here has to be listed to be read at all: the constructor
+        # is called with named arguments, so a setting nobody wired up is
+        # silently ignored and the default wins. That is how the first version
+        # of these two came to have no effect.
+        timeout_ms=settings.get("timeout_ms", 30_000),
+        setup_timeout_ms=settings.get("setup_timeout_ms", 60_000),
         root=d.parent,
     )

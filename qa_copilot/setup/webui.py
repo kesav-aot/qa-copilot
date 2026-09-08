@@ -44,11 +44,22 @@ CAPABILITIES = [
 IDLE_TIMEOUT_SECONDS = 30 * 60
 
 
+def _configured_setup_timeout(config_dir: Path) -> int:
+    """How patient to be, from the workspace's settings, with a safe fallback."""
+    try:
+        from qa_copilot.config import load_config
+
+        return load_config(config_dir).setup_timeout_ms
+    except Exception:
+        return 60_000
+
+
 class SetupSession:
     """State for one run of the setup page. Holds no credential after use."""
 
     def __init__(self, config_dir: Path, secrets_file: Path, work_dir: Path) -> None:
         self.config_dir = config_dir
+        self.timeout_ms = _configured_setup_timeout(config_dir)
         self.secrets_file = secrets_file
         self.work_dir = work_dir
         self.token = secrets.token_urlsafe(24)
@@ -153,7 +164,7 @@ class SetupSession:
             login_path = "/" + login_path
 
         try:
-            found = asyncio.run(_look_at_login(app_url, login_path))
+            found = asyncio.run(_look_at_login(app_url, login_path, self.timeout_ms))
         except Exception as exc:
             return {"ok": False, "problems": [f"Could not open that page: {exc}"]}
 
@@ -284,6 +295,7 @@ class SetupSession:
                         reader=reader,
                         password_reader=lambda _p="": password,
                         extra_values=extra_values,
+                        setup_timeout_ms=self.timeout_ms,
                     )
                 )
         except Exception as exc:  # a broken address, an unreachable host, a crash
@@ -375,7 +387,9 @@ async def _verify_login(config_dir: Path, environment: str, alias: str, values: 
         },
     )
     try:
-        session = await open_session(env, config.artifacts_path, headless=True)
+        session = await open_session(
+        env, config.artifacts_path, headless=True, timeout_ms=config.setup_timeout_ms
+    )
     except Exception as exc:
         # Not a credential problem, and must not be reported as one.
         raise BrowserUnavailable(_browser_problem(exc)) from exc
@@ -391,7 +405,7 @@ async def _verify_login(config_dir: Path, environment: str, alias: str, values: 
     return ""
 
 
-async def _look_at_login(app_url: str, login_path: str):
+async def _look_at_login(app_url: str, login_path: str, timeout_ms: int = 60_000):
     """Open the sign-in page in a real browser and report what is on it."""
     from urllib.parse import urlparse
 
@@ -402,10 +416,13 @@ async def _look_at_login(app_url: str, login_path: str):
     parsed = urlparse(app_url)
     base = f"{parsed.scheme}://{parsed.netloc}"
     session = await open_session(
-        Environment(name="setup-probe", base_url=base), Path("artifacts"), headless=True
+        Environment(name="setup-probe", base_url=base),
+        Path("artifacts"),
+        headless=True,
+        timeout_ms=timeout_ms,
     )
     try:
-        return await discover_login(session.page, base + login_path)
+        return await discover_login(session.page, base + login_path, timeout_ms=timeout_ms)
     finally:
         await session.close()
 

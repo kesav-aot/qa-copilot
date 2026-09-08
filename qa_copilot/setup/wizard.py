@@ -79,6 +79,20 @@ def _default_environment_name(url: str) -> str:
     return _slug(host) or "app"
 
 
+async def _fill(page, target, value: str, timeout_ms: int) -> None:
+    """Wait for a field, then type into it.
+
+    Filling straight after a page load fails on any form that JavaScript
+    renders: the locator waits out the whole timeout and the error names the
+    field, which reads as though the details were wrong rather than early.
+    """
+    from qa_copilot.executor.resolver import resolve
+
+    locator = (await resolve(page, target)).first
+    await locator.wait_for(state="visible", timeout=timeout_ms)
+    await locator.fill(value, timeout=timeout_ms)
+
+
 async def run_wizard(
     *,
     config_dir: Path,
@@ -91,6 +105,7 @@ async def run_wizard(
     reader=input,
     password_reader=getpass.getpass,
     extra_values: dict[str, str] | None = None,
+    setup_timeout_ms: int = 60_000,
 ) -> int:
     secrets_file = secrets_file or Path(".env")
     work_dir = work_dir or Path.cwd()
@@ -136,7 +151,11 @@ async def run_wizard(
     _say()
     _say(f"  Opening a browser to look at {base}{login_path} …")
     probe_env = Environment(name=environment, base_url=base)
-    session = await open_session(probe_env, Path("artifacts"), headless=headless)
+    # Setup runs against a page nobody has described yet, so it waits longer
+    # than a test step does.
+    session = await open_session(
+        probe_env, Path("artifacts"), headless=headless, timeout_ms=setup_timeout_ms
+    )
     try:
         found = await discover_login(session.page, base + login_path)
 
@@ -216,11 +235,30 @@ async def run_wizard(
             return 2
 
         extras = {k: v for k, v in (extra_values or {}).items() if k in found.extras}
-        await (await resolve(session.page, found.username.target)).first.fill(username)
-        await (await resolve(session.page, found.password.target)).first.fill(password)
-        for name, value in extras.items():
-            await (await resolve(session.page, found.extras[name].target)).first.fill(value)
-        await (await resolve(session.page, found.submit.target)).first.click()
+        try:
+            await _fill(session.page, found.username.target, username, setup_timeout_ms)
+            await _fill(session.page, found.password.target, password, setup_timeout_ms)
+            for name, value in extras.items():
+                await _fill(session.page, found.extras[name].target, value, setup_timeout_ms)
+            submit = await resolve(session.page, found.submit.target)
+            await submit.first.click(timeout=setup_timeout_ms)
+        except Exception as exc:
+            # A raw "Locator.fill: Timeout 30000ms exceeded" tells the reader
+            # nothing they can act on, and reads as though the credentials were
+            # rejected rather than as a page that was still loading.
+            seconds = setup_timeout_ms // 1000
+            _say()
+            _say(
+                f"{RED}  The sign-in form did not become usable within "
+                f"{seconds} seconds.{RESET}"
+            )
+            _say("  The page was found, so the address is right; it is either")
+            _say("  slower than that, or the form needs a step first.")
+            _say(f"{DIM}  For a slow application, raise setup_timeout_ms in{RESET}")
+            _say(f"{DIM}  config/settings.yaml and try again.{RESET}")
+            _say(f"{DIM}  ({type(exc).__name__}){RESET}")
+            _say(f"{DIM}  Nothing was written.{RESET}")
+            return 1
         try:
             await session.page.wait_for_load_state("networkidle", timeout=10_000)
         except Exception:
@@ -241,13 +279,14 @@ async def run_wizard(
 
         # A failed sign-in should fail fast later, so find the error element too.
         await session.page.goto(base + login_path, wait_until="domcontentloaded")
-        await (await resolve(session.page, found.username.target)).first.fill(username)
-        await (await resolve(session.page, found.password.target)).first.fill(
-            "deliberately-wrong-" + "x" * 8
+        await _fill(session.page, found.username.target, username, setup_timeout_ms)
+        await _fill(
+            session.page, found.password.target, "deliberately-wrong-" + "x" * 8, setup_timeout_ms
         )
         for name, value in extras.items():
-            await (await resolve(session.page, found.extras[name].target)).first.fill(value)
-        await (await resolve(session.page, found.submit.target)).first.click()
+            await _fill(session.page, found.extras[name].target, value, setup_timeout_ms)
+        submit = await resolve(session.page, found.submit.target)
+        await submit.first.click(timeout=setup_timeout_ms)
         try:
             await session.page.wait_for_load_state("networkidle", timeout=8_000)
         except Exception:

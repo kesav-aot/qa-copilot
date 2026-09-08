@@ -4,6 +4,11 @@ secrets:
   # provider: file
   # file_path: secrets.enc.yaml   # Fernet-encrypted, unlocked by QA_COPILOT_VAULT_KEY
 
+# Raise these for a slow application. The first applies to test steps, the
+# second to setup, which runs against a page nobody has described yet.
+timeout_ms: 30000
+setup_timeout_ms: 60000
+
 policy:
   # Must not be an empty list. PolicyEngine treats an empty allow-list as
   # "no restriction", so [] would allow every environment on a fresh install.

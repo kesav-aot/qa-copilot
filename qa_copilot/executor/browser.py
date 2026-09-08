@@ -45,6 +45,7 @@ class BrowserSession:
     browser: "Browser"
     playwright: "Playwright"
     artifact_dir: Path
+    timeout_ms: int = 30_000
     authenticated_as: str | None = None
     _secret_targets: list[Target] = field(default_factory=list)
     _console: list[str] = field(default_factory=list)
@@ -148,14 +149,14 @@ class BrowserSession:
     # sometimes the steps afterwards ran in the new window, sometimes in the old
     # one, and the report looked identical either way. "Switch to the new
     # window" says it instead, and waits properly.
-    async def click(self, target: Target, timeout_ms: int = 10_000) -> str | None:
+    async def click(self, target: Target, timeout_ms: int | None = None) -> str | None:
         locator = await _locator(self.page, target)
-        await locator.first.click(timeout=timeout_ms)
+        await locator.first.click(timeout=timeout_ms or self.timeout_ms)
         return None
 
-    async def double_click(self, target: Target, timeout_ms: int = 10_000) -> str | None:
+    async def double_click(self, target: Target, timeout_ms: int | None = None) -> str | None:
         locator = await _locator(self.page, target)
-        await locator.first.dblclick(timeout=timeout_ms)
+        await locator.first.dblclick(timeout=timeout_ms or self.timeout_ms)
         return None
 
     async def fill(self, target: Target, value: str, timeout_ms: int = 10_000) -> None:
@@ -241,10 +242,17 @@ class BrowserSession:
         and never saw either value."""
         await self.navigate(recipe.path)
         self._secret_targets.extend([recipe.username_target, recipe.password_target])
+        timeout = self.timeout_ms
+        # Wait for the field before typing into it. A form rendered by
+        # JavaScript is not there the instant the page load event fires, and
+        # filling straight away meant waiting out the whole timeout and then
+        # reporting it as though the credentials were wrong.
         username = await _locator(self.page, recipe.username_target)
-        await username.first.fill(creds.username.reveal())
+        await username.first.wait_for(state="visible", timeout=timeout)
+        await username.first.fill(creds.username.reveal(), timeout=timeout)
         password = await _locator(self.page, recipe.password_target)
-        await password.first.fill(creds.password.reveal())
+        await password.first.wait_for(state="visible", timeout=timeout)
+        await password.first.fill(creds.password.reveal(), timeout=timeout)
         for name, target in recipe.extra_targets.items():
             value = creds.extras.get(name)
             if value is None:
@@ -254,7 +262,8 @@ class BrowserSession:
                 )
             self._secret_targets.append(target)
             extra = await _locator(self.page, target)
-            await extra.first.fill(value.reveal())
+            await extra.first.wait_for(state="visible", timeout=timeout)
+            await extra.first.fill(value.reveal(), timeout=timeout)
         submit = await _locator(self.page, recipe.submit_target)
         await submit.first.click()
 
@@ -399,6 +408,7 @@ async def open_session(
     *,
     headless: bool = True,
     browser_name: str = "chromium",
+    timeout_ms: int = 30_000,
 ) -> BrowserSession:
     from playwright.async_api import async_playwright
 
@@ -443,6 +453,7 @@ async def open_session(
         browser=browser,
         playwright=pw,
         artifact_dir=artifact_dir,
+        timeout_ms=timeout_ms,
     )
     session.watch_console()
     return session

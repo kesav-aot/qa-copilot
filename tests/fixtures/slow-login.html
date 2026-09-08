@@ -1,0 +1,13 @@
+<!doctype html><meta charset=utf-8><title>Sign in</title>
+<!-- The fields appear well after the load event, the way a real single-page
+     application renders them. Looking at once finds nothing at all. -->
+<div id=app>Loading...</div>
+<script>
+setTimeout(function () {
+  document.getElementById('app').innerHTML =
+    '<form action="/x" method="post">' +
+    '<label for=u>Username or email</label><input id=u name=username type=text>' +
+    '<label for=p>Password</label><input id=p name=password type=password>' +
+    '<button type=submit>Sign in</button></form>';
+}, 4000);
+</script>

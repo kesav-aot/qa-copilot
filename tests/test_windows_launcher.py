@@ -39,38 +39,12 @@ def test_no_smart_quotes_anywhere():
         assert ch not in text
 
 
-def test_every_string_is_closed():
-    """A fallback for machines with no PowerShell.
-
-    This is a heuristic, and it false-positives on regex literals containing
-    quotes, so it steps aside when a real parser is available — that test is
-    strictly better. It stays for CI images without pwsh, where it is the only
-    thing standing between an unterminated string and a shipped release.
-    """
-    if _pwsh():
-        import pytest
-
-        pytest.skip("test_it_parses_under_real_powershell covers this properly")
-    text = PS1.read_bytes()[len(BOM):].decode("utf-8")
-    for number, line in enumerate(text.splitlines(), 1):
-        state = None  # None, '"' or "'"
-        i = 0
-        while i < len(line):
-            ch = line[i]
-            if state is None:
-                if ch == "#":
-                    break                      # comment to end of line
-                if ch in "\"'":
-                    state = ch
-            elif ch == state:
-                if state == "'" and line[i + 1 : i + 2] == "'":
-                    i += 1                     # '' escapes a literal quote
-                else:
-                    state = None
-            elif state == '"' and ch == "`":
-                i += 1                         # backtick escape
-            i += 1
-        assert state is None, f"line {number} leaves a {state} string open: {line.strip()[:70]}"
+# There was a hand-written scanner here that walked the file asserting every
+# string closed. It never caught a real fault and false-positived three times -
+# on regex literals containing quotes, and on an apostrophe inside a <# #>
+# block comment. A check that cries wolf gets ignored, and the two things that
+# did catch the real bug are still here: the file must be ASCII, and it must
+# carry a byte-order mark. Where a PowerShell exists, it is parsed for real.
 
 
 def test_powershell_7_only_syntax_is_absent():

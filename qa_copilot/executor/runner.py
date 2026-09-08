@@ -73,7 +73,10 @@ class PlanRunner:
         try:
             if self._needs_browser(plan):
                 try:
-                    session = await open_session(env, artifact_dir, headless=headless)
+                    session = await open_session(
+                        env, artifact_dir, headless=headless,
+                        timeout_ms=self.config.timeout_ms,
+                    )
                 except Exception as exc:  # noqa: BLE001 - reported as a run error
                     self.audit.write("plan.error", plan=plan.name, detail=str(exc))
                     return sanitizer.scrub(

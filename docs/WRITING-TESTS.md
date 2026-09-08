@@ -32,16 +32,17 @@ Admin can disable a user                                    PASSED  (1.2s)
 ## Contents
 
 1. [The shape of a test file](#1-the-shape-of-a-test-file)
-2. [Signing in — and why you never type a password](#2-signing-in)
+2. [Signing in](#2-signing-in)
 3. [Naming things on the page](#3-naming-things-on-the-page)
-4. [Checking — the part that makes it a test](#4-checking)
+4. [Checking](#4-checking)
 5. [Links that open a new tab](#5-links-that-open-a-new-tab)
 6. [Check before you run](#6-check-before-you-run)
-7. [When it can't find something](#7-when-it-cant-find-something)
-8. [Tests that change data](#8-tests-that-change-data)
-9. [Working with an AI assistant](#9-working-with-an-ai-assistant)
-10. [Turning your existing test cases into these](#10-turning-your-existing-test-cases-into-these)
-11. [Every phrase you can use](#11-every-phrase-you-can-use)
+7. [When the app is slow](#7-when-the-app-is-slow)
+8. [When it can't find something](#8-when-it-cant-find-something)
+9. [Tests that change data](#9-tests-that-change-data)
+10. [Working with an AI assistant](#10-working-with-an-ai-assistant)
+11. [Turning your existing test cases into these](#11-turning-your-existing-test-cases-into-these)
+12. [Every phrase you can use](#12-every-phrase-you-can-use)
 
 ---
 
@@ -257,7 +258,22 @@ Do this every time before you commit a test.
 
 ---
 
-## 7. When it can't find something
+## 7. When the app is slow
+
+A real application is slower than a demo, and a sign-in form drawn by
+JavaScript is not there the instant the page loads. Two settings in
+`config/settings.yaml` control how long to wait:
+
+```yaml
+timeout_ms: 30000        # each test step
+setup_timeout_ms: 60000  # pointing it at an app for the first time
+```
+
+Raise them if a step fails with "did not become usable within N seconds". That
+message means the page was found and the address is right — it was just still
+loading.
+
+## 8. When it can't find something
 
 This is the most useful error in the tool, so it is worth knowing what it looks
 like. It never just says "not found" — it tells you what *is* there:
@@ -292,7 +308,7 @@ fails. Password fields are always blanked out in them.
 
 ---
 
-## 8. Tests that change data
+## 9. Tests that change data
 
 Anything that deletes, disables, cancels or removes needs a person to approve it
 before it runs. You will see this:
@@ -318,7 +334,7 @@ Read-only tests never need approval.
 
 ---
 
-## 9. Working with an AI assistant
+## 10. Working with an AI assistant
 
 If QA Copilot is connected to Claude Code (or another assistant), you can ask in
 the same English you write tests in:
@@ -343,7 +359,7 @@ report it.
 
 ---
 
-## 10. Turning your existing test cases into these
+## 11. Turning your existing test cases into these
 
 If you already have test cases in Markdown, Excel, CSV, Gherkin `.feature` files
 or a Jira export, drop them in the `testcases/` folder:
@@ -379,7 +395,7 @@ fix in the original.
 
 ---
 
-## 11. Every phrase you can use
+## 12. Every phrase you can use
 
 ```bash
 qa-copilot words

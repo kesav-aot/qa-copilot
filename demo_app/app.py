@@ -114,6 +114,39 @@ SECOND_LEVEL_PIN = "4821"
 # A link that opens in a new tab, the way a product or document listing does.
 # window.open was already handled; target=_blank was not, and that is the form
 # a shop's search results actually use.
+# A sign-in form that JavaScript renders a few seconds after the page loads,
+# the way a single-page application does. Looking at once finds no form, and
+# filling at once times out on a field that does not exist yet.
+@app.route("/slow-login", methods=["GET", "POST"])
+def slow_login():
+    error = None
+    if request.method == "POST":
+        email = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        record = USERS.get(email)
+        if record and secrets.compare_digest(record["password"], password):
+            session["user"] = {"email": email, "name": record["name"], "role": record["role"]}
+            return redirect(url_for("dashboard"))
+        error = "Invalid username or password."
+    body = """
+      <h1>Sign in</h1>
+      <div id=app>Loading...</div>
+      <script>
+        setTimeout(function () {
+          document.getElementById('app').innerHTML =
+            '<form method=post>' +
+            '<label for=u>Username or email</label>' +
+            '<input id=u name=username autocomplete=username>' +
+            '<label for=p>Password</label>' +
+            '<input id=p name=password type=password autocomplete=current-password>' +
+            '<br><button type=submit>Sign in</button></form>';
+        }, 4000);
+      </script>
+      {% if error %}<p class=error data-testid=login-error>{{ error }}</p>{% endif %}
+    """
+    return render("Sign in", body, error=error), (401 if error else 200)
+
+
 @app.get("/listing")
 def listing():
     return render(

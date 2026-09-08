@@ -120,14 +120,25 @@ def _target_for(info: dict[str, Any], *, is_button: bool) -> Found:
     return Found(Target(css=info.get("tag", "input")), "position on the page (fragile)", info)
 
 
-async def discover_login(page, url: str) -> LoginDiscovery:
+async def discover_login(page, url: str, timeout_ms: int = 60_000) -> LoginDiscovery:
     """Open ``url`` and find the username field, password field and submit button."""
     from qa_copilot.executor.resolver import page_inventory
 
     result = LoginDiscovery(url=url)
     await page.goto(url, wait_until="domcontentloaded")
 
+    # Wait for the form rather than asking the instant the load event fires.
+    # Plenty of real sign-in pages render their fields with JavaScript, and
+    # looking too early reports a page that has no password field at all.
+    # Long enough for a form JavaScript renders, and no longer: this wait is
+    # only ever spent in full when there is no sign-in form at all, and making
+    # the whole setup timeout apply to that case punishes the one page where
+    # waiting cannot help.
     password_el = page.locator("input[type=password]").first
+    try:
+        await password_el.wait_for(state="visible", timeout=min(timeout_ms, 15_000))
+    except Exception:
+        pass  # fall through to the same explanation as before
     if await password_el.count() == 0:
         result.problems.append(
             "I could not find a password field on that page. If sign-in is behind "
