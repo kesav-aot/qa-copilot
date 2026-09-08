@@ -607,59 +607,159 @@ _PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Set up QA Copilot</title>
 <style>
+  /* Restrained, and deliberately so: this page asks for a password. Anything
+     that looks like a toy or a mock-up is the wrong thing to type one into. The
+     modern cues are in the typography, spacing and focus states rather than in
+     colour. */
   :root {
-    --bg:#f6f7f9; --card:#fff; --ink:#16181d; --dim:#5b6270; --line:#e2e5ea;
-    --accent:#2f6df6; --ok:#0d7a4a; --bad:#b3261e; --note:#fff8e1; --noteline:#e8d48b;
+    color-scheme: light dark;
+    --bg:#f7f8fa; --bg-tint:#eef1f6; --card:#ffffff;
+    --ink:#111318; --dim:#5a6272; --faint:#8b93a3;
+    --line:#e3e7ee; --line-strong:#cfd6e2;
+    --accent:#2563eb; --accent-ink:#ffffff; --accent-soft:#eaf1ff;
+    --ok:#0a7c46; --bad:#b3261e;
+    --note:#fffaeb; --note-line:#f3dfa6;
+    --radius:14px;
+    --shadow:0 1px 2px rgba(16,24,40,.04), 0 8px 24px -12px rgba(16,24,40,.14);
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg:#14161a; --card:#1c1f25; --ink:#e9ecf1; --dim:#9aa3b2; --line:#2c313a;
-      --accent:#6f9bff; --ok:#4ade80; --bad:#ff7b72; --note:#2a2415; --noteline:#5c4f22;
+      --bg:#0d1014; --bg-tint:#12161c; --card:#161b22;
+      --ink:#e8ecf2; --dim:#9aa4b2; --faint:#6e7a8a;
+      --line:#242c37; --line-strong:#333e4c;
+      --accent:#5b8cff; --accent-ink:#0b0f14; --accent-soft:#18233a;
+      --ok:#4ade80; --bad:#ff7b72;
+      --note:#241f12; --note-line:#4b3f1d;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px -16px rgba(0,0,0,.7);
     }
   }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);
-       font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-  .wrap{max-width:640px;margin:0 auto;padding:40px 20px 80px}
-  h1{font-size:24px;margin:0 0 6px}
-  .sub{color:var(--dim);margin:0 0 24px}
-  .note{background:var(--note);border:1px solid var(--noteline);border-radius:10px;
-        padding:14px 16px;margin:0 0 24px;font-size:14px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px}
-  label.f{display:block;margin:0 0 18px}
-  label.f > span.t{display:block;font-weight:600;margin-bottom:4px}
-  label.f > span.h{display:block;color:var(--dim);font-size:13px;margin-bottom:6px}
-  input[type=text],input[type=password]{width:100%;padding:10px 12px;border-radius:8px;
-    border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:15px}
-  input:focus{outline:2px solid var(--accent);outline-offset:1px}
-  .row{display:flex;gap:14px}.row>*{flex:1}
-  fieldset{border:1px solid var(--line);border-radius:10px;padding:14px;margin:0 0 18px}
-  legend{font-weight:600;padding:0 6px}
-  label.cap{display:flex;align-items:baseline;gap:8px;margin:6px 0;font-size:14px}
-  label.cap span{color:var(--dim);font-size:13px}
-  label.nologin{display:block;margin:0 0 18px;padding:12px 14px;border-radius:9px;
-    border:1px solid var(--line);background:var(--bg)}
-  label.nologin b{margin-left:6px}
-  label.nologin span{display:block;margin-top:4px}
-  button{background:var(--accent);color:#fff;border:0;border-radius:9px;
-         padding:12px 20px;font-size:15px;font-weight:600;cursor:pointer}
-  button[disabled]{opacity:.6;cursor:default}
-  #out{margin-top:22px;white-space:pre-wrap;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
-       border-radius:10px;padding:0}
-  #out.show{padding:14px 16px;border:1px solid var(--line);background:var(--card)}
-  .ok{color:var(--ok)} .bad{color:var(--bad)}
-  h2.sec{font-size:17px;margin:32px 0 4px}
-  h3.sec{font-size:14px;margin:22px 0 12px;color:var(--dim);
-         text-transform:uppercase;letter-spacing:.04em}
-  #look{background:transparent;color:var(--accent);border:1px solid var(--accent)}
-  h2.sec:first-of-type{margin-top:0}
-  .acct{margin-bottom:16px}
-  .acct .who{font-size:16px;margin-bottom:2px}
-  .acct .who span{color:var(--dim);font-weight:400;font-size:14px}
-  .acct .desc{color:var(--dim);font-size:13px;margin:0 0 16px}
-  .acct .out{margin-top:14px;white-space:pre-wrap;
-    font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
+  * { box-sizing:border-box }
+  html { -webkit-text-size-adjust:100% }
+  body {
+    margin:0; color:var(--ink);
+    background:
+      radial-gradient(1100px 520px at 50% -12%, var(--bg-tint), transparent 70%),
+      var(--bg);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    font-feature-settings:"cv02","cv03","cv04";
+  }
+  .wrap { max-width:680px; margin:0 auto; padding:48px 20px 96px }
+
+  /* --- header ------------------------------------------------------------ */
+  .brand { display:flex; align-items:center; gap:10px; margin:0 0 22px }
+  .brand .mark {
+    width:30px; height:30px; border-radius:9px; flex:0 0 auto;
+    background:linear-gradient(140deg, var(--accent), color-mix(in oklab, var(--accent) 55%, #22d3ee));
+    box-shadow:0 0 0 1px rgba(255,255,255,.14) inset;
+  }
+  .brand .who { font-weight:650; letter-spacing:-.01em }
+  h1 { font-size:26px; line-height:1.2; letter-spacing:-.022em; margin:0 0 6px; font-weight:680 }
+  .sub { color:var(--dim); margin:0 0 26px; font-size:15px }
+
+  .note {
+    background:var(--note); border:1px solid var(--note-line);
+    border-radius:var(--radius); padding:15px 17px; margin:0 0 28px; font-size:14px;
+  }
+  .note b { font-weight:650 }
+
+  h2.sec {
+    font-size:13px; font-weight:650; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--faint); margin:34px 0 10px;
+  }
+  h2.sec:first-of-type { margin-top:0 }
+  h3.sec {
+    font-size:12px; font-weight:650; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--faint); margin:26px 0 14px;
+    padding-top:18px; border-top:1px solid var(--line);
+  }
+
+  /* --- cards ------------------------------------------------------------- */
+  .card {
+    background:var(--card); border:1px solid var(--line);
+    border-radius:18px; padding:26px; box-shadow:var(--shadow);
+  }
+  .acct { margin-bottom:16px }
+  .acct .who { font-size:16px; font-weight:650; letter-spacing:-.01em; margin-bottom:2px }
+  .acct .who span { color:var(--dim); font-weight:400; font-size:14px }
+  .acct .desc { color:var(--dim); font-size:13.5px; margin:0 0 18px }
+
+  /* --- fields ------------------------------------------------------------ */
+  label.f { display:block; margin:0 0 20px }
+  label.f > span.t { display:block; font-weight:600; font-size:14px; margin-bottom:3px }
+  label.f > span.h { display:block; color:var(--dim); font-size:13px; margin-bottom:8px }
+  input[type=text], input[type=password] {
+    width:100%; padding:11px 13px; border-radius:10px;
+    border:1px solid var(--line-strong); background:var(--bg);
+    color:var(--ink); font-size:15px; font-family:inherit;
+    transition:border-color .14s ease, box-shadow .14s ease, background .14s ease;
+  }
+  input[type=text]:hover, input[type=password]:hover { border-color:var(--accent) }
+  input[type=text]:focus, input[type=password]:focus {
+    outline:none; border-color:var(--accent); background:var(--card);
+    box-shadow:0 0 0 3.5px color-mix(in oklab, var(--accent) 22%, transparent);
+  }
+  input::placeholder { color:var(--faint) }
+  /* An address and a path are read character by character, so they get the
+     monospace face: a long Keycloak redirect path is otherwise a wall. */
+  input[name=app_url], input[name=login_path] { font-family:var(--mono); font-size:13.5px }
+  .row { display:flex; gap:16px }
+  .row > * { flex:1; min-width:0 }
+  @media (max-width:560px) { .row { flex-direction:column; gap:0 } }
+
+  fieldset {
+    border:1px solid var(--line); border-radius:12px;
+    padding:16px 18px 14px; margin:0 0 20px; background:var(--bg);
+  }
+  legend { font-weight:600; font-size:13.5px; padding:0 7px; color:var(--dim) }
+  label.cap { display:flex; align-items:baseline; gap:9px; margin:9px 0; font-size:14px }
+  label.cap span { color:var(--dim); font-size:13px }
+  /* Monospace is for the capability tokens a test will name, not for prose. */
+  fieldset label.cap b { font-weight:600; font-family:var(--mono); font-size:13px }
+  input[type=checkbox] { accent-color:var(--accent); width:15px; height:15px; margin:0 }
+
+  label.nologin {
+    display:block; margin:0 0 20px; padding:14px 16px; border-radius:12px;
+    border:1px solid var(--line); background:var(--bg); cursor:pointer;
+    transition:border-color .14s ease, background .14s ease;
+  }
+  label.nologin:hover { border-color:var(--line-strong) }
+  label.nologin:has(input:checked) { border-color:var(--accent); background:var(--accent-soft) }
+  label.nologin b { margin-left:7px; font-weight:600; font-family:inherit; font-size:15px }
+  label.nologin span { display:block; margin-top:5px; color:var(--dim); font-size:13px }
+
+  /* --- buttons ----------------------------------------------------------- */
+  button {
+    appearance:none; border:1px solid transparent; border-radius:10px;
+    padding:11px 20px; font-size:14.5px; font-weight:600; font-family:inherit;
+    background:var(--accent); color:var(--accent-ink); cursor:pointer;
+    transition:filter .14s ease, box-shadow .14s ease, transform .06s ease;
+  }
+  button:hover { filter:brightness(1.07) }
+  button:active { transform:translateY(1px) }
+  button:focus-visible {
+    outline:none; box-shadow:0 0 0 3.5px color-mix(in oklab, var(--accent) 30%, transparent);
+  }
+  button[disabled] { opacity:.55; cursor:default; filter:none }
+  #look { background:transparent; color:var(--accent); border-color:var(--line-strong) }
+  #look:hover { background:var(--accent-soft); filter:none }
+
+  /* --- results ----------------------------------------------------------- */
+  #out, .acct .out {
+    margin-top:18px; white-space:pre-wrap; border-radius:11px;
+    font:13px/1.6 var(--mono); padding:0;
+  }
+  #out.show, .acct .out:not(:empty) {
+    padding:14px 16px; border:1px solid var(--line); background:var(--bg);
+  }
+  .ok { color:var(--ok); font-weight:650 }
+  .bad { color:var(--bad); font-weight:650 }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition:none !important; animation:none !important }
+  }
 </style></head><body><div class="wrap">
+<div class="brand"><div class="mark"></div><div class="who">QA Copilot</div></div>
 <h1>Set up QA Copilot</h1>
 <p class="sub">Point it at the application you want to test.</p>
 
