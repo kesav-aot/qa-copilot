@@ -62,6 +62,11 @@ The last line is `_safe()` in the MCP server: if a known secret survives
 scrubbing, the response is discarded and replaced with a `SECURITY_VIOLATION`.
 A test sabotages `scrub` to prove that guard actually fires.
 
+The HTML report is built from the same scrubbed result and the same masked
+screenshots, and is written for the human, not returned to the model — the
+model is told its path only. Text from the application is escaped on the way
+in, so a page title cannot put script into a file the QA engineer opens.
+
 **Holds. This is the layer most likely to need extending** — new artifact types
 (HAR files, video, trace archives, console logs) must be routed through `scrub()`
 before they are ever surfaced.
@@ -104,6 +109,22 @@ Residual: an approval file is a file. Anything that can write to
 store behind a service with real authentication and signed records.
 
 **Holds against the model. Assumes filesystem integrity.**
+
+### 7. Plant instructions in a skill
+
+Skills are instructions the model follows, and `save_project_skill` lets the
+model write one — so a model steered by a hostile page could try to leave
+instructions behind for later conversations.
+
+What that buys an attacker is bounded by the same thing as everything else: a
+skill grants no capability. It cannot read a secret, approve a plan, or reach a
+blocked environment, because no tool can. The save refuses credential-shaped
+text, accepts only a constrained name inside the workspace's own
+`project-skills` folder, never overwrites a shipped skill, and is written to
+the audit log. The skill is a plain file a person can read.
+
+**Contained by capability. A team that does not want model-written skills
+should review `project-skills/` like any other file in the workspace.**
 
 ## Explicitly out of scope
 

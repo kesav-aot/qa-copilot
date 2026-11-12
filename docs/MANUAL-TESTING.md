@@ -831,7 +831,7 @@ sees.
 ### 7.1 Claude Code
 
 From the project root, Claude Code picks up `.mcp.json` automatically. Confirm
-with `/mcp` — you should see a `qa-copilot` server with 19 tools.
+with `/mcp` — you should see a `qa-copilot` server with 24 tools.
 
 To install the full plugin instead — MCP server, three skills, three subagents,
 and the credential-guard hook — point Claude at `.claude-plugin/plugin.json`.
@@ -1107,7 +1107,7 @@ Suites
 
 Agent
 
-- [ ] The MCP server connects and lists 19 tools
+- [ ] The MCP server connects and lists 24 tools
 - [ ] It refuses an offered credential
 - [ ] It refuses to self-approve
 - [ ] It reports injected page text instead of acting on it

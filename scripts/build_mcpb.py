@@ -60,6 +60,11 @@ def build() -> Path:
     src.mkdir()
     _copy_tree(ROOT / "qa_copilot", src / "qa_copilot")
     shutil.copy2(ROOT / "pyproject.toml", src / "pyproject.toml")
+    # The skills go inside the package. Claude Desktop reads nothing from an
+    # extension but its MCP server, so a skills folder beside the server would
+    # never be seen; the server hands them out itself, and has to be able to
+    # find them once it is installed away from this repository.
+    _copy_tree(ROOT / "skills", src / "qa_copilot" / "builtin_skills")
     for optional in ("README.md",):
         if (ROOT / optional).is_file():
             shutil.copy2(ROOT / optional, src / optional)

@@ -303,8 +303,25 @@ Usually one of three things is true:
 | The list is from the wrong page | An earlier step went somewhere unexpected — add `Take a screenshot` before it and look |
 | It found the right words but the wrong kind of thing | It will say so: *"I did find 'Users' (link) — but you asked for a heading."* Drop the word `heading`, or name the real heading |
 
-`Take a screenshot` at any point, and one is saved automatically whenever a step
-fails. Password fields are always blanked out in them.
+**You do not need to ask for screenshots.** One is taken after every step, and
+when the run ends a report opens in your browser showing each step beside the
+picture of the page after it — so "where did it go wrong?" is usually answered
+by scrolling. Password fields are always blanked out. The reports are kept in
+the `reports` folder of your workspace; each is a single file you can attach to
+a ticket. `Take a screenshot called "after checkout"` is still there for when
+you want a named picture of one particular moment.
+
+### Dragging
+
+Some screens — form builders, diagram editors, boards — work by dragging:
+
+```
+Drag "Text Field" onto the form area
+Drag the Task card to the Done column
+```
+
+Put the name in quotes. If the thing has no name you could say, such as a blank
+canvas, your assistant can give you a line beginning `css=` to use instead.
 
 ---
 

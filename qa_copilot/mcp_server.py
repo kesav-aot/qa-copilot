@@ -36,7 +36,17 @@ mcp = MCPServer(
         "secret:// reference. If they need to connect a new application or account, "
         "call open_setup and give them the link — never ask them to type a credential "
         "to you, and never ask them to run a terminal command. "
-        "Call validate_test_plan before run_test_plan."
+        "Call validate_test_plan before run_test_plan. "
+        "SKILLS: before you write, run, report on or diagnose a test, call "
+        "list_skills and load the one that fits with get_skill, then follow it. "
+        "Skills marked 'project' were written by this team about their own "
+        "application and take priority; if the application under test is "
+        "formsflow, load qa-formsflow. "
+        "EVIDENCE: every run takes a screenshot after each step without being "
+        "asked and writes an HTML report, which is opened in the user's browser. "
+        "After every run, give the user the report link from html_report in "
+        "your reply — always, whether or not they asked for a report or for "
+        "screenshots."
     ),
 )
 
@@ -45,6 +55,40 @@ _EXECUTES = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_wo
 _WRITES = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
 
 _copilot: QACopilot | None = None
+
+
+def _deliver(result: dict[str, Any]) -> dict[str, Any]:
+    """Put the finished report in front of the person.
+
+    The report is the deliverable, and a path in a tool result is not delivery:
+    the person has to be told about it by the model and then go and find the
+    file. Opening it is the only way it reliably reaches them.
+    """
+    info = result.get("html_report") if isinstance(result, dict) else None
+    if not isinstance(info, dict) or not info.get("path"):
+        return result
+    opened = False
+    wanted = os.environ.get("QA_COPILOT_OPEN_REPORTS", "").strip().lower() not in ("0", "false", "no")
+    try:
+        wanted = wanted and copilot().config.report.open
+    except Exception:
+        wanted = False
+    if wanted:
+        import webbrowser
+
+        with contextlib.suppress(Exception):  # a headless host has no browser to open
+            opened = bool(webbrowser.open(info["link"]))
+    info["opened_in_browser"] = opened
+    info["tell_the_user"] = (
+        (
+            "The report is open in your browser — every step with a screenshot of "
+            "the page after it. "
+            if opened
+            else "The report is ready — every step with a screenshot of the page after it. "
+        )
+        + f"It is saved at {info['path']}"
+    )
+    return result
 
 
 def copilot() -> QACopilot:
@@ -154,7 +198,7 @@ async def run_test_plan(plan: dict, headless: bool = True) -> str:
         plan: A Test DSL plan object matching get_test_plan_schema().
         headless: Run the browser headless. Set false only when a human asked to watch.
     """
-    return _safe(await copilot().run(plan, headless=headless))
+    return _safe(_deliver(await copilot().run(plan, headless=headless)))
 
 
 # --- plain English ---------------------------------------------------------
@@ -210,7 +254,7 @@ async def run_plain_test(
         environment: Which environment to target.
         headless: Run the browser headless.
     """
-    return _safe(await copilot().run_plain(text, environment, headless=headless))
+    return _safe(_deliver(await copilot().run_plain(text, environment, headless=headless)))
 
 
 # --- test-case ingestion ---------------------------------------------------
@@ -330,10 +374,99 @@ async def run_test_suite(
         stop_on_failure: Stop at the first plan that does not pass.
     """
     return _safe(
-        await copilot().run_suite(
-            suite=suite, plans=plans, headless=headless, stop_on_failure=stop_on_failure
+        _deliver(
+            await copilot().run_suite(
+                suite=suite, plans=plans, headless=headless, stop_on_failure=stop_on_failure
+            )
         )
     )
+
+
+# --- reports ---------------------------------------------------------------
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def list_reports(limit: int = 20) -> str:
+    """List recent runs, newest first, with what passed and failed in each.
+
+    Every run is kept, so a report can be made again later or several runs put
+    into one report. Use the `run_id` values with `generate_report`.
+
+    Args:
+        limit: How many recent runs to return (max 100).
+    """
+    return _safe(copilot().list_reports(limit))
+
+
+@mcp.tool(annotations=_WRITES)
+def generate_report(run_ids: list[str] | None = None, title: str | None = None) -> str:
+    """Build an HTML report from runs that already happened, and open it in the
+    user's browser. Runs nothing.
+
+    A report is written automatically after every run, so you only need this to
+    show the last one again, or to put several runs into one report — a day's
+    testing, a release sign-off. The file is self-contained, with screenshots
+    inside it, so it can be attached to a ticket or sent to someone.
+
+    Always give the user the link this returns.
+
+    Args:
+        run_ids: Runs to include, in order, from list_reports. Omit for the
+            most recent run.
+        title: A heading for the report. Omit to reuse the run's own name.
+    """
+    info = copilot().generate_report(run_ids, title)
+    if "error" in info:
+        return _safe(info)
+    return _safe(_deliver({"html_report": info}))
+
+
+# --- skills ----------------------------------------------------------------
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def list_skills() -> str:
+    """List the skills available: written instructions for doing one kind of
+    job well — writing a test, running one, reporting, testing one product.
+
+    Call this at the start of any testing task and load the skill that fits
+    with `get_skill`. Skills marked `project` were written by this team about
+    their own application; prefer them, and they replace a built-in skill of
+    the same name.
+    """
+    return _safe(copilot().list_skills())
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def get_skill(name: str) -> str:
+    """Return one skill's instructions in full. Follow them for the task at hand.
+
+    Args:
+        name: The skill name from list_skills, e.g. "qa-write-test".
+    """
+    return _safe(copilot().get_skill(name))
+
+
+@mcp.tool(annotations=_WRITES)
+def save_project_skill(name: str, description: str, content: str) -> str:
+    """Save a skill for this team's own application into their workspace, so
+    it is available in every later conversation.
+
+    Use this when the user asks you to remember how their product works or how
+    they want it tested — its pages and roles, the wording it uses, the steps
+    that are always needed. Load `qa-project-skill` first for what a good one
+    contains, show the user the text, and save only what they agreed to.
+
+    Refused if the text contains anything that looks like a credential: name
+    test accounts by alias. It can add or replace a project skill only, never a
+    built-in one.
+
+    Args:
+        name: Lower-case words joined by hyphens, e.g. "our-checkout-flow".
+        description: One sentence saying when to use the skill.
+        content: The instructions, as Markdown.
+    """
+    return _safe(copilot().save_skill(name, description, content))
 
 
 # --- audit -----------------------------------------------------------------
@@ -403,6 +536,27 @@ def setup_status() -> str:
     if _setup is None:
         return _safe({"state": "not_started", "detail": "Call open_setup first."})
     return _safe(_setup.public_status())
+
+
+def _register_skill_prompts() -> None:
+    """Offer each built-in skill as a prompt, so it can be picked from the
+    host's own menu as well as loaded by the model."""
+    from qa_copilot import skills as skill_files
+
+    def make(skill: "skill_files.Skill"):
+        def prompt() -> str:
+            return skill.body()
+
+        prompt.__name__ = skill.name.replace("-", "_")
+        prompt.__doc__ = skill.description
+        return prompt
+
+    with contextlib.suppress(Exception):  # a missing menu entry must not stop the server
+        for skill in skill_files._scan(skill_files.builtin_dir(), "built-in").values():
+            mcp.prompt(name=skill.name, description=skill.description[:400])(make(skill))
+
+
+_register_skill_prompts()
 
 
 def main() -> None:

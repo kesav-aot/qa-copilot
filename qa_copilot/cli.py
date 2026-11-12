@@ -66,6 +66,21 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _show_report(result: dict, args, announce: bool = True) -> None:
+    """Say where the HTML report is, and open it if asked."""
+    info = result.get("html_report") or {}
+    if not info.get("path"):
+        if info.get("error"):
+            print(info["error"], file=sys.stderr)
+        return
+    if announce:
+        print(f"  Full report, with a screenshot of every step: {info['path']}\n")
+    if getattr(args, "open", False):
+        import webbrowser
+
+        webbrowser.open(info["link"])
+
+
 def cmd_run(args) -> int:
     """Run a test. Takes plain English or a DSL plan — it works out which."""
     copilot = _copilot(args)
@@ -79,6 +94,7 @@ def cmd_run(args) -> int:
             _print(report)
         else:
             print(render_report(report, plan))
+        _show_report(report, args, announce=False)  # render_report already said where
         return 0 if report.get("status") == "passed" else 1
 
     result = asyncio.run(
@@ -91,6 +107,7 @@ def cmd_run(args) -> int:
     )
     if args.json:
         _print(result)
+        _show_report(result, args, announce=False)
         return 0 if result.get("overall") == "passed" else 1
 
     if not result["understood"]:
@@ -118,6 +135,7 @@ def cmd_run(args) -> int:
                 ],
             }
         ))
+    _show_report(result, args)
     return 0 if result["overall"] == "passed" else 1
 
 
@@ -584,7 +602,56 @@ def cmd_suite(args) -> int:
         _print(result)
     else:
         print(render_suite(result))
+    _show_report(result, args, announce=not args.json)
     return 0 if result["overall"] == "passed" else 1
+
+
+def cmd_report(args) -> int:
+    """List earlier runs, or build one report from one or more of them."""
+    copilot = _copilot(args)
+    if args.list:
+        runs = copilot.list_reports(args.limit)["runs"]
+        if args.json:
+            _print(runs)
+            return 0
+        if not runs:
+            print("Nothing has been run yet.")
+            return 0
+        for run in runs:
+            summary = ", ".join(f"{v} {k}" for k, v in (run.get("counts") or {}).items())
+            print(f"  {run['run_id']}  {str(run.get('created_at', ''))[:16]}  {summary:<22} {run.get('title')}")
+        return 0
+    result = copilot.generate_report(args.run or None, args.title)
+    if "error" in result:
+        print(result["error"], file=sys.stderr)
+        return 2
+    if args.json:
+        _print(result)
+    else:
+        print(f"Report written: {result['path']}")
+    if not args.no_open:
+        import webbrowser
+
+        webbrowser.open(result["link"])
+    return 0
+
+
+def cmd_skills(args) -> int:
+    """List the skills, or print one."""
+    copilot = _copilot(args)
+    if args.name:
+        skill = copilot.get_skill(args.name)
+        if "error" in skill:
+            print(skill["error"], file=sys.stderr)
+            return 2
+        print(skill["instructions"])
+        return 0
+    listing = copilot.list_skills()
+    for skill in listing["skills"]:
+        print(f"  {skill['name']:<24} [{skill['source']}]")
+        print(f"      {skill['description'][:150]}")
+    print(f"\nYour own skills go in: {listing['project_skill_folder']}")
+    return 0
 
 
 # macOS refuses to let a sandboxed app (Claude Desktop) execute anything inside
@@ -705,6 +772,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--environment", help="which environment to run against")
     run.add_argument("--headed", action="store_true", help="show the browser")
     run.add_argument("--json", action="store_true", help="machine-readable output")
+    run.add_argument("--open", action="store_true", help="open the HTML report when done")
     run.set_defaults(func=cmd_run)
 
     check = sub.add_parser(
@@ -795,7 +863,23 @@ def build_parser() -> argparse.ArgumentParser:
     suite.add_argument("--headed", action="store_true")
     suite.add_argument("--json", action="store_true")
     suite.add_argument("--stop-on-failure", action="store_true")
+    suite.add_argument("--open", action="store_true", help="open the HTML report when done")
     suite.set_defaults(func=cmd_suite)
+
+    rep = sub.add_parser(
+        "report", help="build an HTML report from earlier runs (the latest, by default)"
+    )
+    rep.add_argument("run", nargs="*", metavar="RUN_ID", help="runs to include, in order")
+    rep.add_argument("--title", help="a heading for the report")
+    rep.add_argument("--list", action="store_true", help="list earlier runs instead")
+    rep.add_argument("--limit", type=int, default=20)
+    rep.add_argument("--no-open", action="store_true", help="do not open it in the browser")
+    rep.add_argument("--json", action="store_true")
+    rep.set_defaults(func=cmd_report)
+
+    skl = sub.add_parser("skills", help="list the skills, or print one")
+    skl.add_argument("name", nargs="?")
+    skl.set_defaults(func=cmd_skills)
 
     aud = sub.add_parser("audit", help="tail the audit log")
     aud.add_argument("--limit", type=int, default=30)

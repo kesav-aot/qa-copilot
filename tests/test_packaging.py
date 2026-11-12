@@ -64,6 +64,24 @@ def test_the_bundle_carries_both_launchers_and_the_manifest(bundle):
     assert {"manifest.json", "bin/qa-copilot-launch", "bin/qa-copilot-launch.ps1"} <= names
 
 
+def test_the_bundle_carries_every_skill_inside_the_package(bundle):
+    """Claude Desktop reads only the MCP server, so the skills must be where
+    the installed server can find them — not in a folder beside it."""
+    shipped = {
+        Path(n).parent.name
+        for n in bundle.namelist()
+        if n.startswith("src/qa_copilot/builtin_skills/") and n.endswith("SKILL.md")
+    }
+    in_repo = {p.parent.name for p in (ROOT / "skills").glob("*/SKILL.md")}
+    assert shipped == in_repo and shipped
+
+
+def test_the_package_is_told_to_install_the_skill_files():
+    """Copied into the source tree is not enough: setuptools installs only the
+    data files it is told about, and would leave the Markdown behind."""
+    assert 'qa_copilot = ["builtin_skills/*/*.md"]' in (ROOT / "pyproject.toml").read_text()
+
+
 def test_the_launcher_stays_executable_through_the_zip(bundle):
     mode = bundle.getinfo("bin/qa-copilot-launch").external_attr >> 16
     assert mode & 0o111, "a launcher without the executable bit fails at install time"

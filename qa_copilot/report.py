@@ -45,6 +45,21 @@ def describe_step(step: dict[str, Any]) -> str:
         return f"go to {step.get('path')}"
     if action == "click":
         return f"click {where()}"
+    if action == "double_click":
+        return f"double-click {where()}"
+    if action == "drag":
+        to = step.get("to") or {}
+        onto = next(
+            (str(to[k]) for k in ("describe", "testid", "name", "label", "text", "role", "css") if to.get(k)),
+            "it",
+        )
+        return f"drag {where()} onto {onto}"
+    if action == "switch_window":
+        return (
+            "go back to the previous window"
+            if step.get("to") == "previous"
+            else "switch to the new window"
+        )
     if action == "fill":
         return f"type \"{step.get('value')}\" into {where()}"
     if action == "fill_secret":
@@ -162,6 +177,10 @@ def render_report(report: dict[str, Any], plan: dict[str, Any] | None = None) ->
 
     if status == "error" and not results:
         lines += ["", f"  {failure.get('detail', 'something went wrong before the test started')}"]
+
+    html_report = report.get("html_report") or {}
+    if html_report.get("path"):
+        lines += ["", f"  Full report, with a screenshot of every step: {html_report['path']}"]
 
     return "\n".join(lines) + "\n"
 

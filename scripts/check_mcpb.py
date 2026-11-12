@@ -15,7 +15,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-REQUIRED = {"manifest.json", "bin/qa-copilot-launch", "bin/qa-copilot-launch.cmd"}
+REQUIRED = {
+    "manifest.json",
+    "bin/qa-copilot-launch",
+    "bin/qa-copilot-launch.cmd",
+    # Without these the assistant in Claude Desktop has no skills at all.
+    "src/qa_copilot/builtin_skills/qa-write-test/SKILL.md",
+    "src/qa_copilot/builtin_skills/qa-report/SKILL.md",
+    "src/qa_copilot/builtin_skills/qa-formsflow/SKILL.md",
+}
 
 
 def _mapping_is_empty(raw: bytes, key: str) -> bool:

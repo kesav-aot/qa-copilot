@@ -206,6 +206,79 @@ def never_visible_login():
     )
 
 
+# A form builder in miniature: a palette on the left, a canvas on the right,
+# and a drag that only begins once the pointer has travelled a few pixels with
+# the button held — the way dragula and diagram-js behave. A pointer that jumps
+# straight from the palette to the canvas drops nothing, which is exactly how a
+# naive drag fails against the real editors.
+@app.get("/builder")
+def builder():
+    return render(
+        "Form builder",
+        """
+          <h1>Form builder</h1>
+          <style>
+            .wrap{display:flex;gap:20px;user-select:none}
+            .palette span{display:block;padding:8px 12px;margin:0 0 8px;border:1px solid #c4cad4;
+                          border-radius:6px;background:#eef2f8;cursor:grab;width:150px}
+            #canvas{flex:1;min-height:260px;border:2px dashed #c4cad4;border-radius:8px;padding:12px;
+                    position:relative}
+            #canvas .placed{padding:8px 12px;margin:0 0 8px;border:1px solid #2f6feb;border-radius:6px}
+          </style>
+          <div class=wrap>
+            <div class=palette aria-label="Components">
+              <span class=component data-type=textfield>Text Field</span>
+              <span class=component data-type=number>Number</span>
+              <span class=component data-type=checkbox>Checkbox</span>
+            </div>
+            <div id=canvas data-testid=form-area aria-label="Form area">
+              <p id=hint>Drag and Drop a form component</p>
+            </div>
+          </div>
+          <p id=count data-testid=component-count>0 components</p>
+          <button type=button id=clear
+            onclick="if (confirm('Are you sure you want to remove every component?')) {
+              document.querySelectorAll('.placed').forEach(function (e) { e.remove(); });
+              document.getElementById('count').textContent = '0 components'; }">Clear form</button>
+          <script>
+            (function () {
+              var held = null, origin = null, dragging = false;
+              var canvas = document.getElementById('canvas');
+              document.querySelectorAll('.component').forEach(function (el) {
+                el.addEventListener('mousedown', function (e) {
+                  held = el; origin = {x: e.clientX, y: e.clientY}; dragging = false;
+                });
+              });
+              document.addEventListener('mousemove', function (e) {
+                if (!held) return;
+                if (Math.abs(e.clientX - origin.x) + Math.abs(e.clientY - origin.y) > 4) dragging = true;
+              });
+              document.addEventListener('mouseup', function (e) {
+                var box = canvas.getBoundingClientRect();
+                var inside = e.clientX >= box.left && e.clientX <= box.right &&
+                             e.clientY >= box.top && e.clientY <= box.bottom;
+                if (held && dragging && inside) {
+                  var hint = document.getElementById('hint');
+                  if (hint) hint.remove();
+                  var item = document.createElement('div');
+                  item.className = 'placed';
+                  item.setAttribute('data-type', held.getAttribute('data-type'));
+                  item.setAttribute('data-x', Math.round((e.clientX - box.left) / 10) * 10);
+                  item.setAttribute('data-y', Math.round((e.clientY - box.top) / 10) * 10);
+                  item.textContent = held.textContent + ' added';
+                  canvas.appendChild(item);
+                  var n = canvas.querySelectorAll('.placed').length;
+                  document.getElementById('count').textContent =
+                    n + (n === 1 ? ' component' : ' components');
+                }
+                held = null; dragging = false;
+              });
+            })();
+          </script>
+        """,
+    )
+
+
 @app.get("/listing")
 def listing():
     return render(

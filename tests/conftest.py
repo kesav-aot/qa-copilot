@@ -11,6 +11,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# A finished run opens its report in the browser. Not during the tests.
+os.environ["QA_COPILOT_OPEN_REPORTS"] = "0"
+
 
 def _free_port() -> int:
     with socket.socket() as s:
@@ -83,6 +86,8 @@ def copilot(tmp_path, demo_server, monkeypatch):
     # Plans are written during tests; keep the repo's library untouched.
     config.plan_dir = str(tmp_path / "plans")
     config.testcase_dir = str(ROOT / "testcases")
+    config.report_dir = str(tmp_path / "reports")
+    config.skill_dir = str(tmp_path / "skills")
 
     return QACopilot(config, state_dir=tmp_path / "state", config_dir=ROOT / "config")
 

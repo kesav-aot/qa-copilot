@@ -75,6 +75,15 @@ password.
 > **Write me a test that an admin can reach the settings page, show me what
 > each line means, then run it.**
 
+When the run finishes, **a report opens in your browser**: every step, with a
+picture of the page after it. You never have to ask for screenshots.
+
+**Testing formsflow?** Say so — *"this is a formsflow app"* — and the assistant
+loads what it knows about the form designer, the BPMN editor and bundles.
+**Testing your own product?** Ask it to *"make a skill for our app"*: it writes
+down how your product works into the `project-skills` folder of your workspace
+and uses it in every later conversation.
+
 Your tests are plain text files in the workspace folder. Open them in any
 editor, change them, and ask Claude to run them again — or run them yourself.
 **[WRITING-TESTS.md](WRITING-TESTS.md)** is the only document your team needs.

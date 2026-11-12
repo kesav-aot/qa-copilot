@@ -116,6 +116,40 @@ class PolicyConfig(Base):
     allow_css_selectors: bool = True
 
 
+class EvidenceConfig(Base):
+    """What a run records without being asked.
+
+    Nobody who is new to a test tool thinks to write "take a screenshot" — and
+    the picture of what the page looked like is the first thing they want when a
+    run finishes. So the default is a picture after every step, and saying
+    nothing gets you the evidence.
+    """
+
+    screenshots: str = Field(
+        default="every_step",
+        pattern=r"^(every_step|key_steps|failures_only)$",
+        description=(
+            "every_step: a picture after each step that touches the page. "
+            "key_steps: only after signing in, moving to a page, dragging and "
+            "checking. failures_only: only what the test asks for, plus the "
+            "failure."
+        ),
+    )
+
+
+class ReportConfig(Base):
+    """The HTML report written after every run."""
+
+    auto: bool = Field(default=True, description="Write a report after every run.")
+    open: bool = Field(
+        default=True,
+        description=(
+            "Open the report in the person's browser when a run was started "
+            "from the assistant. The command line prints the path instead."
+        ),
+    )
+
+
 class SecretsConfig(Base):
     provider: str = "env"
     file_path: str | None = None
@@ -125,6 +159,8 @@ class SecretsConfig(Base):
 class Config(Base):
     secrets: SecretsConfig = Field(default_factory=SecretsConfig)
     policy: PolicyConfig = Field(default_factory=PolicyConfig)
+    evidence: EvidenceConfig = Field(default_factory=EvidenceConfig)
+    report: ReportConfig = Field(default_factory=ReportConfig)
     environments: dict[str, Environment] = Field(default_factory=dict)
     identities: dict[str, Identity] = Field(default_factory=dict)
     # Real applications are slower than a demo. A sign-in form rendered by
@@ -150,6 +186,8 @@ class Config(Base):
     artifact_dir: str = "artifacts"
     plan_dir: str = "plans"
     testcase_dir: str = "testcases"
+    report_dir: str = "reports"
+    skill_dir: str = "project-skills"
 
     root: Path = Field(
         default_factory=Path.cwd,
@@ -179,6 +217,14 @@ class Config(Base):
     @property
     def testcases_path(self) -> Path:
         return self._resolve(self.testcase_dir)  # type: ignore[return-value]
+
+    @property
+    def reports_path(self) -> Path:
+        return self._resolve(self.report_dir)  # type: ignore[return-value]
+
+    @property
+    def skills_path(self) -> Path:
+        return self._resolve(self.skill_dir)  # type: ignore[return-value]
 
     @property
     def dotenv_path(self) -> Path | None:
@@ -233,6 +279,10 @@ def load_config(directory: Path | None = None) -> Config:
         artifact_dir=settings.get("artifact_dir", "artifacts"),
         plan_dir=settings.get("plan_dir", "plans"),
         testcase_dir=settings.get("testcase_dir", "testcases"),
+        report_dir=settings.get("report_dir", "reports"),
+        skill_dir=settings.get("skill_dir", "project-skills"),
+        evidence=EvidenceConfig(**(settings.get("evidence") or {})),
+        report=ReportConfig(**(settings.get("report") or {})),
         # Every field here has to be listed to be read at all: the constructor
         # is called with named arguments, so a setting nobody wired up is
         # silently ignored and the default wins. That is how the first version

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qa-copilot"
-version = "0.3.3"
+version = "0.4.0"
 description = "Secret-blind AI QA agent: the model plans, a trusted layer holds the credentials"
 requires-python = ">=3.11"
 dependencies = [
@@ -27,6 +27,10 @@ qa-copilot-mcp = "qa_copilot.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["qa_copilot*"]
+
+# Present only in a built bundle, where scripts/build_mcpb.py copies skills/ in.
+[tool.setuptools.package-data]
+qa_copilot = ["builtin_skills/*/*.md"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

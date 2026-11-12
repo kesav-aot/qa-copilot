@@ -143,18 +143,16 @@ class PolicyEngine:
                 f"plan has {len(plan.steps)} steps, policy limit is {self.config.max_steps}"
             )
 
-        if not self.config.allow_css_selectors:
-            for i, step in enumerate(plan.steps):
-                target = getattr(step, "target", None)
-                if target is not None and target.css:
-                    violations.append(f"step {i} uses a raw CSS selector, which policy forbids")
-        else:
-            for i, step in enumerate(plan.steps):
-                target = getattr(step, "target", None)
-                if target is not None and target.css:
-                    warnings.append(
-                        f"step {i} uses a raw CSS selector; prefer role/label/testid"
-                    )
+        for i, step in enumerate(plan.steps):
+            # A drag has two targets; the drop target is as much a selector as
+            # the thing being picked up.
+            targets = [getattr(step, "target", None), getattr(step, "to", None)]
+            if not any(getattr(t, "css", None) for t in targets):
+                continue
+            if not self.config.allow_css_selectors:
+                violations.append(f"step {i} uses a raw CSS selector, which policy forbids")
+            else:
+                warnings.append(f"step {i} uses a raw CSS selector; prefer role/label/testid")
 
         if not any(s.action == "assert" for s in plan.steps):
             warnings.append("plan contains no assertions — it can pass without verifying anything")

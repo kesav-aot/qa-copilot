@@ -130,6 +130,34 @@ class DoubleClick(Base):
     target: Target
 
 
+class Drag(Base):
+    """Pick one thing up and drop it on another.
+
+    Form builders and diagram editors are driven this way: a component is
+    dragged out of a palette onto a canvas. It is done with real pointer
+    movement in small steps rather than a synthetic drop event, because the
+    libraries these editors use (dragula, diagram-js) only start a drag once the
+    pointer has actually travelled.
+    """
+
+    action: Literal["drag"]
+    target: Target = Field(description="What to pick up.")
+    to: Target = Field(description="What to drop it on.")
+    offset_x: int | None = Field(
+        default=None,
+        ge=0,
+        le=10_000,
+        description=(
+            "Where inside the destination to let go, in pixels from its left "
+            "edge. Omit both offsets to drop in the middle. Use them to place "
+            "several shapes on one canvas without stacking them."
+        ),
+    )
+    offset_y: int | None = Field(
+        default=None, ge=0, le=10_000, description="Pixels from its top edge."
+    )
+
+
 class Fill(Base):
     action: Literal["fill"]
     target: Target
@@ -239,6 +267,7 @@ Step = Annotated[
         Navigate,
         Click,
         DoubleClick,
+        Drag,
         Fill,
         FillSecret,
         Select,

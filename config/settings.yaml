@@ -12,6 +12,19 @@ policy:
   max_steps: 100
   allow_css_selectors: true        # set false to force role/label/testid targets
 
+# What a run records without being asked. Screenshots are taken after every
+# step by default, so a test never has to say "take a screenshot".
+evidence:
+  screenshots: every_step   # every_step | key_steps | failures_only
+
+# An HTML report, with those screenshots in it, is written after every run and
+# opened in your browser when the run was started from the assistant.
+report:
+  auto: true
+  open: true
+
 artifact_dir: artifacts
+report_dir: reports      # the HTML reports
+skill_dir: project-skills   # your own skills for your product, one folder each
 plan_dir: plans          # reviewed plans, saved by save_test_plan
 testcase_dir: testcases  # manual test cases to ingest

@@ -29,7 +29,7 @@ def _target_phrase(target: dict[str, Any] | None) -> tuple[str, str]:
         if target.get(key):
             return str(target[key]), suffix
     if target.get("css"):
-        return str(target["css"]), suffix
+        return f"css={target['css']}", suffix
     return "it", suffix
 
 
@@ -46,6 +46,17 @@ def step_to_english(step: dict[str, Any]) -> str | None:
         return f"Go to {step.get('path')}"
     if action == "click":
         return f"Click {what}{row}"
+    if action == "drag":
+        onto, _ = _target_phrase(step.get("to"))
+        spot = (
+            f" at {step['offset_x']}, {step['offset_y']}"
+            if step.get("offset_x") is not None and step.get("offset_y") is not None
+            else ""
+        )
+        # Quoted, so the name is taken exactly: "Text Field" is otherwise read
+        # as a field called Text.
+        name = what if what.startswith("css=") else _quote(what.strip("\"“”"))
+        return f"Drag {name} onto {onto}{spot}"
     if action == "fill":
         return f"Type {_quote(step.get('value'))} into {what}"
     if action == "fill_secret":

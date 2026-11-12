@@ -49,6 +49,7 @@ class BrowserSession:
     authenticated_as: str | None = None
     _secret_targets: list[Target] = field(default_factory=list)
     _console: list[str] = field(default_factory=list)
+    _dialogs: list[str] = field(default_factory=list)
     _window_stack: list["Page"] = field(default_factory=list)
 
     # --- windows the app opens itself -------------------------------------
@@ -70,8 +71,30 @@ class BrowserSession:
                 else None,
             )
             self.page.context.on("pageerror", lambda err: record("pageerror", str(err)))
+            # A page that asks "Are you sure?" in a browser dialog is waiting for
+            # an answer; left alone the browser dismisses it, which cancels the
+            # very thing the step clicked. Say yes, and keep the question so the
+            # report can show it was asked.
+            self.page.context.on("dialog", lambda dialog: self._answer(dialog))
         except Exception:
             pass
+
+    def _answer(self, dialog: Any) -> None:
+        self._dialogs.append(f"{dialog.type}: {(dialog.message or '').strip()[:200]}")
+        del self._dialogs[:-20]
+        asyncio.ensure_future(self._accept(dialog))
+
+    @staticmethod
+    async def _accept(dialog: Any) -> None:
+        try:
+            await dialog.accept()
+        except Exception:
+            pass  # already answered, or the page went away
+
+    def take_dialogs(self) -> list[str]:
+        """Browser dialogs answered since the last call."""
+        seen, self._dialogs = self._dialogs, []
+        return seen
 
     def console_errors(self) -> list[str]:
         return [line for line in self._console if line.startswith(("error", "pageerror"))][-10:]
@@ -158,6 +181,60 @@ class BrowserSession:
         locator = await _locator(self.page, target)
         await locator.first.dblclick(timeout=timeout_ms or self.timeout_ms)
         return None
+
+    async def drag(
+        self,
+        source: Target,
+        destination: Target,
+        offset_x: int | None = None,
+        offset_y: int | None = None,
+    ) -> str:
+        """Drag one element onto another with real, stepped pointer movement.
+
+        Playwright's own drag_to jumps the pointer from one point to the other.
+        dragula (the form.io builder) and diagram-js (the BPMN and DMN editors)
+        both ignore that: they start a drag only after the pointer has moved a
+        few pixels with the button held, and they work out the drop position
+        from the moves that follow. So this presses, nudges, travels in steps,
+        lingers a moment over the destination, and only then lets go.
+        """
+        timeout = self.timeout_ms
+        src = (await _locator(self.page, source)).first
+        dst = (await _locator(self.page, destination)).first
+        await src.wait_for(state="visible", timeout=timeout)
+        await dst.wait_for(state="visible", timeout=timeout)
+        # Destination first, source last: the source must be on screen when the
+        # button goes down, and the destination is re-measured after that.
+        await dst.scroll_into_view_if_needed(timeout=timeout)
+        await src.scroll_into_view_if_needed(timeout=timeout)
+
+        box = await src.bounding_box()
+        if box is None:
+            raise ExecutionError(f"{source.summary()} has no position on the page to drag from")
+        start_x, start_y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+
+        mouse = self.page.mouse
+        await mouse.move(start_x, start_y)
+        await mouse.down()
+        try:
+            await mouse.move(start_x + 6, start_y + 6, steps=3)  # past the drag threshold
+            box = await dst.bounding_box()
+            if box is None:
+                raise ExecutionError(
+                    f"{destination.summary()} has no position on the page to drop onto"
+                )
+            end_x = box["x"] + (box["width"] / 2 if offset_x is None else min(offset_x, box["width"] - 1))
+            end_y = box["y"] + (box["height"] / 2 if offset_y is None else min(offset_y, box["height"] - 1))
+            # Arrive just short and finish with a small move inside the target:
+            # drop zones highlight on movement within them, not on arrival, and
+            # the last position is the one the drop is measured from.
+            await mouse.move(end_x - 3, end_y - 3, steps=15)
+            await mouse.move(end_x, end_y, steps=3)
+            await asyncio.sleep(0.15)
+        finally:
+            await mouse.up()
+        await asyncio.sleep(0.2)  # let the editor finish placing what was dropped
+        return f"dropped at {round(end_x)},{round(end_y)}"
 
     async def fill(self, target: Target, value: str, timeout_ms: int = 10_000) -> None:
         locator = await _locator(self.page, target)

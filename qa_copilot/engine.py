@@ -15,7 +15,8 @@ from qa_copilot.audit.log import AuditLog
 from qa_copilot.config import Config, load_config
 from qa_copilot.dsl.schema import TestPlan
 from qa_copilot.executor.api import ApiExecutor
-from qa_copilot.executor.runner import PlanRunner
+from qa_copilot.executor.runner import PlanRunner, new_run_id
+from qa_copilot.htmlreport import ReportStore
 from qa_copilot.identity.broker import IdentityBroker
 from qa_copilot.ingest import analyzer, drafter, loader
 from qa_copilot.library import LibraryError, PlanLibrary
@@ -23,6 +24,7 @@ from qa_copilot.plain import Context, compile_text, looks_like_plain_english
 from qa_copilot.policy.engine import ApprovalStore, PolicyEngine
 from qa_copilot.sanitize import sanitizer
 from qa_copilot.secrets import build_provider
+from qa_copilot.skills import SkillError, SkillLibrary
 
 STATE_DIR = ".qa-copilot"
 
@@ -58,6 +60,8 @@ class QACopilot:
             config.plans_path, suites_file=self.config_dir / "suites.yaml"
         )
         self.testcase_root = config.testcases_path
+        self.reports = ReportStore(config.reports_path)
+        self.skills = SkillLibrary(config.skills_path)
 
     @classmethod
     def load(cls, config_dir: Path | None = None, state_dir: Path | None = None) -> "QACopilot":
@@ -150,7 +154,65 @@ class QACopilot:
             )
         return "ready to run"
 
-    async def run(self, plan: dict[str, Any], *, headless: bool = True) -> dict[str, Any]:
+    async def run(
+        self, plan: dict[str, Any], *, headless: bool = True, report: bool = True
+    ) -> dict[str, Any]:
+        """Run one plan.
+
+        ``report`` is turned off by the callers that run several plans and
+        write one report for all of them.
+        """
+        result = await self._run_one(plan, headless=headless)
+        if report and result.get("status") not in ("invalid", "blocked"):
+            # Nothing ran for those two, so there is nothing to show.
+            name = result.get("plan") or "Test"
+            self._attach_report(
+                result,
+                title=name,
+                kind="test",
+                tests=[{"name": name, "plan": self._plan_dict(plan), "report": result}],
+                run_id=result.get("run_id"),
+            )
+        return result
+
+    @staticmethod
+    def _plan_dict(plan: dict[str, Any] | TestPlan) -> dict[str, Any]:
+        if isinstance(plan, TestPlan):
+            return plan.model_dump(mode="json", exclude_none=True)
+        return plan
+
+    def _attach_report(
+        self,
+        result: dict[str, Any],
+        *,
+        title: str,
+        kind: str,
+        tests: list[dict[str, Any]],
+        run_id: str | None = None,
+    ) -> None:
+        """Write the HTML report for a finished run and say where it is.
+
+        A report that cannot be written must not take the result down with it:
+        the run happened, and its outcome is still true.
+        """
+        if not self.config.report.auto or not tests:
+            return
+        run_id = run_id or new_run_id()
+        try:
+            # The record must not contain itself.
+            clean = [
+                {**t, "report": {k: v for k, v in (t.get("report") or {}).items() if k != "html_report"}}
+                for t in tests
+            ]
+            info = self.reports.save(run_id, title, kind, sanitizer.scrub(clean))
+        except Exception as exc:  # noqa: BLE001 - reported, never raised
+            self.audit.write("report.error", detail=f"{type(exc).__name__}: {exc}")
+            result["html_report"] = {"error": f"the report could not be written: {exc}"}
+            return
+        self.audit.write("report.written", run_id=run_id, path=info["path"], tests=len(tests))
+        result["html_report"] = {"run_id": run_id, **info}
+
+    async def _run_one(self, plan: dict[str, Any], *, headless: bool = True) -> dict[str, Any]:
         try:
             parsed = self.parse(plan)
         except ValidationError as exc:
@@ -339,20 +401,30 @@ class QACopilot:
             return sanitizer.scrub({"error": "give a suite name or a list of plan slugs"})
 
         results: list[dict[str, Any]] = []
+        reported: list[dict[str, Any]] = []
         counts = {"passed": 0, "failed": 0, "error": 0, "blocked": 0, "invalid": 0}
         for name in names:
             try:
                 plan = self.library.load(name)
             except LibraryError as exc:
                 results.append({"plan": name, "status": "error", "detail": str(exc)})
+                reported.append(
+                    {
+                        "name": name,
+                        "plan": {},
+                        "report": {"plan": name, "status": "error", "failure": {"detail": str(exc)}},
+                    }
+                )
                 counts["error"] += 1
                 if stop_on_failure:
                     break
                 continue
 
-            report = await self.run(plan.model_dump(mode="json"), headless=headless)
+            plan_json = plan.model_dump(mode="json", exclude_none=True)
+            report = await self.run(plan_json, headless=headless, report=False)
             status = report.get("status", "error")
             counts[status] = counts.get(status, 0) + 1
+            reported.append({"name": plan.name, "plan": plan_json, "report": report})
             results.append(
                 {
                     "plan": name,
@@ -368,7 +440,7 @@ class QACopilot:
 
         overall = "passed" if counts["passed"] == len(results) and results else "failed"
         self.audit.write("suite.finish", suite=suite, plans=len(results), overall=overall)
-        return sanitizer.scrub(
+        out = sanitizer.scrub(
             {
                 "suite": suite,
                 "overall": overall,
@@ -378,6 +450,13 @@ class QACopilot:
                 "results": results,
             }
         )
+        self._attach_report(
+            out,
+            title=f"Suite: {suite}" if suite else f"{len(results)} tests",
+            kind="suite",
+            tests=reported,
+        )
+        return out
 
     # --- plain English (the surface a QA engineer actually uses) -----------
     def compile_plain(
@@ -427,13 +506,13 @@ class QACopilot:
         results = []
         counts = {"passed": 0, "failed": 0, "error": 0, "blocked": 0, "invalid": 0}
         for test in compiled["tests"]:
-            report = await self.run(test["plan"], headless=headless)
+            report = await self.run(test["plan"], headless=headless, report=False)
             status = report.get("status", "error")
             counts[status] = counts.get(status, 0) + 1
             results.append({"name": test["name"], "plan": test["plan"], "report": report})
 
         overall = "passed" if counts["passed"] == len(results) and results else "failed"
-        return sanitizer.scrub(
+        out = sanitizer.scrub(
             {
                 "understood": True,
                 "ran": True,
@@ -443,6 +522,66 @@ class QACopilot:
                 "results": results,
             }
         )
+        title = results[0]["name"] if len(results) == 1 else name
+        if title == "Untitled test" and len(results) > 1:
+            title = f"{len(results)} tests"
+        self._attach_report(
+            out,
+            title=title,
+            kind="test" if len(results) == 1 else "file",
+            tests=results,
+            run_id=results[0]["report"].get("run_id") if len(results) == 1 else None,
+        )
+        return out
+
+    # --- reports -----------------------------------------------------------
+    def list_reports(self, limit: int = 20) -> dict[str, Any]:
+        return sanitizer.scrub({"runs": self.reports.list(min(max(limit, 1), 100))})
+
+    def generate_report(
+        self, run_ids: list[str] | None = None, title: str | None = None
+    ) -> dict[str, Any]:
+        """Build a report from runs that already happened. Runs nothing."""
+        try:
+            if not run_ids:
+                recent = self.reports.list(1)
+                if not recent:
+                    return {"error": "nothing has been run yet, so there is nothing to report on"}
+                run_ids = [recent[0]["run_id"]]
+            if len(run_ids) > 50:
+                return {"error": "a report can combine at most 50 runs"}
+            if not title:
+                title = (
+                    self.reports.load(run_ids[0]).get("title") or "Test report"
+                    if len(run_ids) == 1
+                    else f"Test report — {len(run_ids)} runs"
+                )
+            info = self.reports.combine(run_ids, title)
+        except (ValueError, FileNotFoundError) as exc:
+            return sanitizer.scrub({"error": str(exc)})
+        self.audit.write("report.generated", runs=run_ids, path=info["path"])
+        return sanitizer.scrub(info)
+
+    # --- skills ------------------------------------------------------------
+    def list_skills(self) -> dict[str, Any]:
+        return sanitizer.scrub(
+            {"skills": self.skills.list(), "project_skill_folder": str(self.skills.project_dir)}
+        )
+
+    def get_skill(self, name: str) -> dict[str, Any]:
+        try:
+            skill = self.skills.get(name)
+        except SkillError as exc:
+            return sanitizer.scrub({"error": str(exc)})
+        return sanitizer.scrub({**skill.summary(), "instructions": skill.body()})
+
+    def save_skill(self, name: str, description: str, content: str) -> dict[str, Any]:
+        try:
+            info = self.skills.save(name, description, content)
+        except SkillError as exc:
+            return sanitizer.scrub({"saved": False, "error": str(exc)})
+        self.audit.write("skill.saved", name=info["name"], path=info["path"])
+        return sanitizer.scrub(info)
 
     @staticmethod
     def is_plain_english(text: str) -> bool:

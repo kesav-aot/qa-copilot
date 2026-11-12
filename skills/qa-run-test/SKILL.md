@@ -22,12 +22,20 @@ description: Validate, gate, and execute a QA Copilot Test DSL plan against a co
 The report is already sanitised. It gives you per-step status, durations,
 artifact paths, and on failure a screenshot plus a scrubbed page snapshot.
 
+**Screenshots are automatic.** Every step that touches the page gets one,
+whether or not the test asked — you never need to add a screenshot step to get
+evidence. They are collected into an HTML report (`html_report` in the result)
+which is opened in the person's browser when the run ends.
+
 Summarise for a human, in this shape:
 
 - **Verdict** — passed / failed / error / blocked, and at which step.
 - **What actually happened** — quote the failing step's `detail`, not the whole trace.
 - **Evidence** — the screenshot path and the relevant part of the page snapshot.
 - **Next action** — a defect, a flaky selector, a stale test, or an environment problem.
+- **Report** — always, as the last line: where the HTML report is, from
+  `html_report.path`. Do this even when nobody asked for a report or for
+  screenshots. The `qa-report` skill has the detail.
 
 Distinguish these carefully:
 

@@ -38,6 +38,9 @@ def test_expected_tools_are_present():
         "save_test_plan", "list_test_plans", "get_test_plan", "run_test_suite",
         # MVP 3 — plain English
         "get_phrasebook", "check_plain_test", "run_plain_test",
+        # reports and skills
+        "list_reports", "generate_report",
+        "list_skills", "get_skill", "save_project_skill",
     }
     assert expected <= tool_names()
 
@@ -64,6 +67,11 @@ def test_only_the_writing_tools_are_marked_non_read_only():
         # Writes configuration and the secret store — via a page the human fills
         # in, not from anything the model passes. It takes no arguments at all.
         "open_setup",
+        # Writes an HTML file built from runs that already happened.
+        "generate_report",
+        # Writes a Markdown file into the workspace's own skills folder, and
+        # refuses anything credential-shaped.
+        "save_project_skill",
     }
 
 
@@ -129,12 +137,12 @@ def test_the_documented_tool_count_matches_reality():
     # describing a stale connection, so this checks named staleness rather than
     # every digit followed by the word "tools".
     stale = {n: w for n, w in
-             {14: "fourteen", 17: "seventeen", 19: "nineteen", 20: "twenty"}.items()
+             {14: "fourteen", 17: "seventeen", 19: "nineteen", 20: "twenty", 24: "twenty-four"}.items()
              if n != actual}
 
     for name in ("README.md", "docs/CONNECT.md", "docs/MANUAL-TESTING.md"):
         text = (root / name).read_text()
-        current = {14: "fourteen", 17: "seventeen", 19: "nineteen", 20: "twenty"}[actual]
+        current = {14: "fourteen", 17: "seventeen", 19: "nineteen", 20: "twenty", 24: "twenty-four"}[actual]
         assert f"{actual} tools" in text or f"{current} MCP tools" in text, (
             f"{name} never states the tool count"
         )

@@ -27,6 +27,10 @@ An AI assistant can write those tests, and a QA engineer can read, edit and
 re-run them without the assistant. **[Start with the writing
 guide.](docs/WRITING-TESTS.md)**
 
+Every run comes back with evidence nobody had to ask for: **a screenshot after
+each step, and an HTML report** with those screenshots in it, opened in your
+browser when the run ends. See [Screenshots and reports](#screenshots-and-reports).
+
 ## The other half: the model never learns a credential
 
 The model decides *what* to test and *who* to test as. It never learns a single
@@ -159,7 +163,71 @@ choose that, so it cannot be talked into filling a password field somewhere else
 canned login recipe cannot drive, `fill_secret` takes a `secret://` reference —
 the plan still carries only the alias.
 
-## The nineteen MCP tools
+## Screenshots and reports
+
+Nobody new to a test tool thinks to write "take a screenshot", and the picture
+of the page is the first thing they want afterwards. So it is the default:
+
+- **A screenshot after every step** that touches the page. Password fields, and
+  any field a secret was typed into, are masked.
+- **An HTML report after every run** — verdict, each step in plain words with
+  its screenshot, and on a failure what went wrong and what the page said. It
+  is one self-contained file, so it can be attached to a ticket or sent on.
+- **It reaches the person.** Started from the assistant, the report opens in
+  the browser and the assistant is told to hand over its location every time.
+  From the command line the path is printed; add `--open` to open it.
+- **Runs are kept**, so `qa-copilot report` (or the `generate_report` tool)
+  can rebuild the last report or put several runs into one — a day's testing,
+  a release sign-off.
+
+```yaml
+# config/settings.yaml
+evidence:
+  screenshots: every_step   # every_step | key_steps | failures_only
+report:
+  auto: true
+  open: true
+```
+
+## Skills, including your own
+
+A skill is written know-how the assistant loads before a job. They are served
+by the MCP server (`list_skills`, `get_skill`) as well as shipped as plugin
+files, because a Claude Desktop extension is only an MCP server and never reads
+a skills folder.
+
+| Skill | For |
+|---|---|
+| `qa-write-test` | Writing a test in plain English |
+| `qa-run-test` | Running one and reading the result |
+| `qa-report` | Delivering the report; combined and sign-off reports |
+| `qa-analyze-failure` | Working out why a run failed |
+| `qa-automate-test-case` / `qa-generate-test` | Manual test cases and DSL plans |
+| `qa-formsflow` | Testing [formsflow.ai](https://github.com/AOT-Technologies/forms-flow-ai): the form.io drag-and-drop designer, BPMN and DMN editors, bundles, Keycloak sign-in |
+| `qa-project-skill` | Writing a skill for **your** product |
+
+**Your own skills** live in the workspace's `project-skills/` folder, one folder
+each with a `SKILL.md`. Ask the assistant — *"make a skill for our claims
+portal"* — and it writes one with `save_project_skill`, or write the file by
+hand. A project skill appears in every later conversation and replaces a
+built-in skill of the same name. A skill containing anything that looks like a
+credential is refused.
+
+## Drag and drop
+
+Form builders and diagram editors are driven by dragging, so there is a
+sentence for it:
+
+```
+Drag "Text Field" onto the form area
+Drag css=.djs-palette .entry[data-action="create.task"] onto css=#canvas at 420, 220
+```
+
+It is done with real, stepped pointer movement, which is what dragula (form.io)
+and diagram-js (bpmn-js) need. `css=` stands in for anything with no name on
+screen, in any step.
+
+## The twenty-four MCP tools
 
 Testing:
 
@@ -200,8 +268,18 @@ Connecting an application:
 | `list_test_plans` | The library and the defined suites. |
 | `get_test_plan` | One saved plan, to edit and save back. |
 
-Deliberately absent: anything that reads a secret, an env var, a file, or the
-config; anything that evaluates JavaScript; and anything that approves a plan.
+Reports and skills:
+
+| Tool | Purpose |
+|---|---|
+| `list_reports` | Earlier runs, newest first. |
+| `generate_report` | One HTML report from one or more earlier runs. Runs nothing. |
+| `list_skills` | Built-in and project skills. |
+| `get_skill` | One skill's instructions. |
+| `save_project_skill` | Save a skill for the team's own product. Refuses credentials. |
+
+Deliberately absent: anything that reads a secret, an env var, the config, or a
+file other than a test case or a skill; anything that evaluates JavaScript; and anything that approves a plan.
 
 ## The approval gate
 
@@ -315,7 +393,9 @@ qa-copilot doctor                       # config, secrets and Playwright wiring
 qa-copilot identities --environment demo
 qa-copilot schema                       # the Test DSL JSON Schema
 qa-copilot validate examples/disable-user.yaml
-qa-copilot run my-test.txt [--headed]    # plain English or a DSL plan
+qa-copilot run my-test.txt [--headed] [--open]   # plain English or a DSL plan
+qa-copilot report [RUN_ID ...] [--title "..."]   # HTML report; --list shows runs
+qa-copilot skills [NAME]                 # the skills, or one in full
 qa-copilot check my-test.txt             # what did it understand? runs nothing
 qa-copilot words                         # every phrase you can write
 qa-copilot approve <fingerprint> [--note "..."]
@@ -335,6 +415,8 @@ qa-copilot suite authz [--stop-on-failure]
 qa_copilot/
   plain/        plain English → DSL: grammar, compiler, phrasebook, writer
   report.py     results rendered for a person, not a machine
+  htmlreport.py the HTML report, and the record of each run
+  skills.py     built-in and project skills, served over MCP
   dsl/          Test DSL — pydantic schema, the stable AI↔execution contract
   ingest/       manual test cases → normalised cases → analysis → draft plans
   library.py    reviewed plans on disk, and named suites
@@ -346,7 +428,7 @@ qa_copilot/
   sanitize/     exact-value + pattern redaction, the egress tripwire
   audit/        append-only scrubbed JSONL
   engine.py     wiring; every model-visible return value leaves through scrub()
-  mcp_server.py the seven tools
+  mcp_server.py the MCP tools
   cli.py        the human half — approval lives here and nowhere else
 
 config/         environments, identities, policy, suites
@@ -362,7 +444,7 @@ docs/           threat model
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q      # 399 tests
+.venv/bin/python -m pytest -q      # 583 tests
 ```
 
 The suite asserts the security properties directly, not just the happy path:
@@ -388,7 +470,9 @@ path traversal; and a test case containing a credential is never drafted.
 ## Status
 
 Built: plain-English tests with runtime element resolution, secure login, the
-policy gate, sanitised reporting, test-case ingestion from six formats, drafting
+policy gate, sanitised reporting, automatic screenshots and HTML reports,
+drag and drop, skills served over MCP (including a team's own and one for
+formsflow), test-case ingestion from six formats, drafting
 with gap analysis, the plan library, and suites.
 
 Not yet built: the test-data broker (creating and reserving fixtures on demand),

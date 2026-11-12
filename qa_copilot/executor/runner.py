@@ -10,6 +10,8 @@ import asyncio
 import re
 import time
 import traceback
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,8 +30,20 @@ def safe_dirname(name: str) -> str:
     return (cleaned or "plan")[:60]
 
 
+def new_run_id() -> str:
+    """Sortable, and safe to use as a folder name."""
+    return f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
+
+
+# Steps worth a picture when only the important moments are kept.
+_KEY_ACTIONS = {"authenticate", "navigate", "drag", "assert", "switch_window"}
+# Steps that never get an automatic picture: one already is a picture, one does
+# not touch the page, and one changes nothing to look at.
+_NO_AUTO_SHOT = {"screenshot", "api_request", "pause"}
+
+
 _UI_ACTIONS = {
-    "authenticate", "navigate", "click", "double_click", "fill", "fill_secret",
+    "authenticate", "navigate", "click", "double_click", "drag", "fill", "fill_secret",
     "select", "wait_for", "switch_window", "screenshot",
 }
 
@@ -55,9 +69,24 @@ class PlanRunner:
             for s in plan.steps
         )
 
-    async def run(self, plan: TestPlan, *, headless: bool = True) -> dict[str, Any]:
+    def _wants_shot(self, step: Any) -> bool:
+        """Should this step get a picture nobody asked for?"""
+        mode = self.config.evidence.screenshots
+        if mode == "failures_only" or step.action in _NO_AUTO_SHOT:
+            return False
+        if step.action == "assert" and step.kind == "status":
+            return False  # about the last API call, not about the page
+        return mode == "every_step" or step.action in _KEY_ACTIONS
+
+    async def run(
+        self, plan: TestPlan, *, headless: bool = True, run_id: str | None = None
+    ) -> dict[str, Any]:
         env = self.config.environment(plan.environment)
-        artifact_dir = self.config.artifacts_path / safe_dirname(plan.name)
+        run_id = run_id or new_run_id()
+        # One folder per run. Without it every run of a test adds to the same
+        # pile, and nobody can tell which pictures belong to which result.
+        artifact_dir = self.config.artifacts_path / safe_dirname(plan.name) / run_id
+        started_at = datetime.now().astimezone().isoformat(timespec="seconds")
         session: BrowserSession | None = None
         results: list[dict[str, Any]] = []
         artifacts: list[str] = []
@@ -83,6 +112,8 @@ class PlanRunner:
                         {
                             "plan": plan.name,
                             "environment": plan.environment,
+                            "run_id": run_id,
+                            "started_at": started_at,
                             "status": "error",
                             "steps_run": 0,
                             "steps_total": len(plan.steps),
@@ -118,6 +149,17 @@ class PlanRunner:
                     if api_status is not None:
                         self._last_api_status = api_status
                     entry["detail"] = detail
+                    if session is not None:
+                        answered = session.take_dialogs()
+                        if answered:
+                            entry["dialogs_accepted"] = answered
+                            entry["detail"] = (
+                                f"{detail} — the page asked "
+                                + "; ".join(repr(a) for a in answered)
+                                + " and I accepted"
+                            )
+                    if step.action == "screenshot" and artifacts:
+                        entry["screenshot"] = artifacts[-1]
                 except AssertionError as exc:
                     entry.update(status="failed", detail=str(exc))
                     status = "failed"
@@ -133,6 +175,19 @@ class PlanRunner:
                     )
                     status = "error"
                 entry["duration_ms"] = round((time.perf_counter() - t0) * 1000)
+                if (
+                    entry["status"] == "passed"
+                    and session is not None
+                    and self._wants_shot(step)
+                ):
+                    # Evidence is a bonus. A picture that cannot be taken must
+                    # never turn a passing step into a failing one.
+                    try:
+                        entry["screenshot"] = await session.screenshot(
+                            f"step{index + 1:02d}-{step.action}"
+                        )
+                    except Exception:
+                        pass
                 results.append(entry)
 
                 if entry["status"] != "passed":
@@ -147,6 +202,7 @@ class PlanRunner:
                             shot = await session.screenshot(f"failure-step{index}")
                             artifacts.append(shot)
                             failure["screenshot"] = shot
+                            entry["screenshot"] = shot
                             failure["page"] = await session.snapshot(max_chars=1_500)
                             # A step that "worked" but changed nothing is often a
                             # JavaScript error the page swallowed.
@@ -163,6 +219,9 @@ class PlanRunner:
         report = {
             "plan": plan.name,
             "environment": plan.environment,
+            "run_id": run_id,
+            "started_at": started_at,
+            "base_url": env.base_url,
             "risk": str(plan.risk),
             "status": status,
             "steps_run": len(results),
@@ -234,6 +293,12 @@ class PlanRunner:
                     f"now working in {popup_url}"
                 ), None
             return f"double-clicked {step.target.summary()}", None
+
+        if action == "drag":
+            where = await session.drag(  # type: ignore[union-attr]
+                step.target, step.to, step.offset_x, step.offset_y
+            )
+            return f"dragged {step.target.summary()} onto {step.to.summary()} ({where})", None
 
         if action == "fill":
             await session.fill(step.target, step.value)  # type: ignore[union-attr]

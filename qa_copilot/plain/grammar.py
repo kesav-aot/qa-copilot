@@ -55,13 +55,43 @@ class Rule:
     examples: list[str]
 
 
+_SELECTOR = re.compile(r"(?i)^(?:css|selector)\s*[=:]\s*(?P<css>\S.*)$")
+
+
+def _phrase_target(text: str | None, keep_quotes: bool = False) -> dict[str, Any]:
+    """A phrase, or — when the author wrote ``css=...`` — an exact selector.
+
+    Some things on a page have no name a person could say: a blank diagram
+    canvas, an icon-only palette entry. The escape hatch keeps a test that
+    needs one of those in plain English instead of forcing the whole file into
+    the DSL for the sake of a single line.
+    """
+    raw = (text or "").strip()
+    selector = _SELECTOR.match(raw) or _SELECTOR.match(unquote(raw))
+    if selector:
+        return {"css": selector.group("css").strip()}
+    name = unquote(raw)
+    if keep_quotes and name and re.match(rf"^{Q}.*{Q}[.!,]?$", raw):
+        # Quoted means "exactly this". Without the quotes the resolver reads a
+        # trailing word as a kind of thing, and a palette entry called
+        # "Text Field" is searched for as a field called "Text".
+        return {"describe": f'"{name}"'}
+    return {"describe": name}
+
+
 def _target(match: re.Match[str], key: str = "what") -> dict[str, Any]:
     """Build a late-binding target from a phrase, honouring 'in the X row'."""
-    target: dict[str, Any] = {"describe": unquote(match.group(key))}
+    target = _phrase_target(match.group(key))
     within = match.groupdict().get("within")
-    if within:
+    if within and "describe" in target:
         target["within"] = unquote(within)
     return target
+
+
+def _say(target: dict[str, Any]) -> str:
+    if target.get("describe"):
+        return unquote(target["describe"])
+    return f"the element matching {target.get('css')}"
 
 
 # --- authentication ---------------------------------------------------------
@@ -213,19 +243,35 @@ def _build_click(match: re.Match[str], ctx) -> Built:
             explain=f"click {whole}",
         )
     target = _target(match)
-    if not target["describe"]:
+    if not _say(target).strip():
         return Built.fail("say what to click", 'e.g. "click the Save button"')
     return Built(
         steps=[{"action": "click", "target": target}],
-        explain=f"click {target['describe']}"
+        explain=f"click {_say(target)}"
         + (f" in the {target['within']!r} row" if target.get("within") else ""),
     )
+
+
+def _build_drag(match: re.Match[str], ctx) -> Built:
+    source = _phrase_target(match.group("what"), keep_quotes=True)
+    destination = _phrase_target(match.group("to"), keep_quotes=True)
+    if not _say(source).strip() or not _say(destination).strip():
+        return Built.fail(
+            "say what to drag and where to drop it",
+            'e.g. "Drag Text Field onto the form area"',
+        )
+    step: dict[str, Any] = {"action": "drag", "target": source, "to": destination}
+    explain = f"drag {_say(source)} and drop it on {_say(destination)}"
+    if match.groupdict().get("x"):
+        step["offset_x"], step["offset_y"] = int(match.group("x")), int(match.group("y"))
+        explain += f", {step['offset_x']} across and {step['offset_y']} down from its top-left corner"
+    return Built(steps=[step], explain=explain)
 
 
 def _build_type(match: re.Match[str], ctx) -> Built:
     value = unquote(match.group("value"))
     target = _target(match, "field")
-    if _PASSWORDY.search(target["describe"]) or _PASSWORDY.search(value):
+    if _PASSWORDY.search(target.get("describe", "")) or _PASSWORDY.search(value):
         return Built.fail(
             "that looks like a credential, and credentials must never be written "
             "in a test file",
@@ -234,7 +280,7 @@ def _build_type(match: re.Match[str], ctx) -> Built:
         )
     return Built(
         steps=[{"action": "fill", "target": target, "value": value}],
-        explain=f"type {value!r} into {target['describe']}",
+        explain=f"type {value!r} into {_say(target)}",
     )
 
 
@@ -256,17 +302,17 @@ def _build_tick(match: re.Match[str], ctx) -> Built:
     target = _target(match)
     return Built(
         steps=[{"action": "click", "target": target}],
-        explain=f"tick {target['describe']}",
+        explain=f"tick {_say(target)}",
     )
 
 
 # --- waiting ----------------------------------------------------------------
 
 def _build_wait_text(match: re.Match[str], ctx) -> Built:
-    what = unquote(match.group("what"))
+    target = _phrase_target(match.group("what"))
     return Built(
-        steps=[{"action": "wait_for", "target": {"describe": what}, "timeout_ms": 15_000}],
-        explain=f"wait for {what!r} to appear (up to 15s)",
+        steps=[{"action": "wait_for", "target": target, "timeout_ms": 15_000}],
+        explain=f"wait for {_say(target)!r} to appear (up to 15s)",
     )
 
 
@@ -294,7 +340,7 @@ def _build_check_visible(match: re.Match[str], ctx) -> Built:
     target = _target(match)
     return Built(
         steps=[{"action": "assert", "kind": "visible", "target": target}],
-        explain=f"check {target['describe']} is on the page",
+        explain=f"check {_say(target)} is on the page",
     )
 
 
@@ -302,7 +348,7 @@ def _build_check_not_visible(match: re.Match[str], ctx) -> Built:
     target = _target(match)
     return Built(
         steps=[{"action": "assert", "kind": "not_visible", "target": target}],
-        explain=f"check {target['describe']} is NOT on the page",
+        explain=f"check {_say(target)} is NOT on the page",
     )
 
 
@@ -657,6 +703,27 @@ RULES: list[Rule] = [
         "Toggle a checkbox. ('Tick' is clearer — 'check' also starts an assertion.)",
         ['Check the "Remember me" checkbox'],
     ),
+    # --- dragging --------------------------------------------------------
+    Rule(
+        "drag onto", "Dragging",
+        re.compile(
+            r"(?i)^drag\s+(?:and\s+drop\s+)?(?:the\s+)?"
+            r"(?P<what>[\"“‘'][^\"“”‘’']+[\"”’']|.+?)\s+"
+            r"(?:and\s+drop\s+(?:it\s+)?)?(?:onto|on\s+to|into|in\s+to|on|over|to)\s+"
+            r"(?P<to>.+?)"
+            r"(?:\s+at\s+(?P<x>\d+)\s*,\s*(?P<y>\d+))?" + END
+        ),
+        _build_drag,
+        "Pick something up and drop it somewhere else — how form builders and "
+        "diagram editors are driven. Add 'at 300, 200' to choose the spot inside "
+        "the destination, measured from its top-left corner. For something with "
+        "no name on screen, such as a blank canvas, write css= and its selector.",
+        [
+            'Drag "Text Field" onto the form area',
+            "Drag the Task card to the Done column",
+            'Drag css=.palette .entry[title="Create Task"] onto css=.canvas at 300, 200',
+        ],
+    ),
     # --- double-clicking (before plain clicking) ------------------------
     Rule(
         "double click in named row", "Clicking",
@@ -666,7 +733,7 @@ RULES: list[Rule] = [
         ),
         lambda m, ctx: Built(
             steps=[{"action": "double_click", "target": _target(m)}],
-            explain=f"double-click {_target(m)['describe']} in the '{unquote(m.group('within'))}' row",
+            explain=f"double-click {_say(_target(m))} in the '{unquote(m.group('within'))}' row",
         ),
         "Double-click something inside a particular row.",
         ['Double-click "ln1, fn1" in the URGENT row'],

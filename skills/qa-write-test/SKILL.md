@@ -45,6 +45,15 @@ Rules that matter more than they look:
 - **Say the kind of thing** — `the Save button`, `the Email field` — when you
   know it. The resolver then only looks at things of that kind, and tells the
   user when the name exists but is the wrong kind.
+- **Do not add screenshot lines for evidence.** Every step is photographed
+  automatically and the pictures go into the report. Write `Take a screenshot
+  called "…"` only when the person wants a named picture of a particular moment.
+- **Dragging is a sentence too**: `Drag "Text Field" onto the form area`. For
+  something with no name on screen — a blank canvas, an icon — write `css=` and
+  its selector in place of the name.
+- **Check for a skill about the product.** `list_skills` may show one for the
+  application under test (formsflow has `qa-formsflow`; a team may have saved
+  its own). Load it before writing — it knows the real addresses and wording.
 
 ## Then check it, and show your working
 
@@ -66,7 +75,9 @@ Flag two things explicitly if present:
 
 ## Running it
 
-`run_plain_test`, then report per the `qa-run-test` skill. If a step fails
+`run_plain_test`, then report per the `qa-run-test` skill, and finish with where
+the HTML report is (`html_report.path`) — every run produces one, with a
+screenshot of each step, and the person should always be told. If a step fails
 because an element was not found, the failure detail lists **what is actually on
 the page** — quote it, it is nearly always the fastest route to the fix.
 

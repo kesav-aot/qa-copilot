@@ -14,6 +14,7 @@ _ORDER = [
     "Signing in",
     "Moving around",
     "Clicking",
+    "Dragging",
     "Filling in forms",
     "Checking",
     "Waiting",

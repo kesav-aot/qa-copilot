@@ -13,7 +13,10 @@ surfacing as a sanitised field instead. Say so if you hit that wall.
 ## Evidence to gather
 
 1. The failing report: `failure.step_index`, `failure.detail`, `failure.page`.
-2. The screenshot at `failure.screenshot` — read it.
+2. The screenshot at `failure.screenshot` — read it if you can open files. If
+   you cannot, the same picture is in the HTML report beside the failing step,
+   along with one for every step before it: point the person at it and ask what
+   they see. `failure.page` describes the same page in text.
 3. `recent_activity` — the audit trail. Look for `auth.result` with
    `authenticated: false`, or `api.request` entries with unexpected statuses
    just before the failure.
