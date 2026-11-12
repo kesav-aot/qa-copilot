@@ -328,6 +328,58 @@ def pin_login():
     return render("Sign in", body, error=error), (401 if error else 200)
 
 
+# A sign-in site of its own, the way Keycloak is for formsflow. Reach it under
+# a different host name from the app (127.0.0.1 against localhost) and it is a
+# different site to the browser. Like Keycloak, the form posts to another path
+# than the one that served it, success sends the browser back to the app, and
+# an account with a temporary password is shown "Update password" - with no
+# error message anywhere - instead of being let in.
+IDP_TEMPORARY = {"new@qa.local": "Temp-Demo-Pass!"}
+
+_IDP_FORM = """
+  <h1 id=kc-page-title>Sign in to your account</h1>
+  <form method=post action="/idp/login-actions/authenticate?redirect_uri={{ back|urlencode }}">
+    <label for=username>Username or email</label>
+    <input id=username name=username autocomplete=username>
+    <label for=password>Password</label>
+    <input id=password name=password type=password autocomplete=current-password>
+    <br><input type=submit id=kc-login name=login value="Sign In">
+  </form>
+  {% if error %}<span id=input-error>{{ error }}</span>{% endif %}
+"""
+
+
+def _back_to_app() -> str:
+    back = request.args.get("redirect_uri") or ""
+    # Only ever back to this demo, under either of its names.
+    allowed = (f"http://localhost:{request.host.split(':')[-1]}/",
+               f"http://127.0.0.1:{request.host.split(':')[-1]}/")
+    return back if back.startswith(allowed) else ""
+
+
+@app.get("/idp/auth")
+def idp_auth():
+    return render("Sign in", _IDP_FORM, back=_back_to_app(), error=None)
+
+
+@app.post("/idp/login-actions/authenticate")
+def idp_authenticate():
+    email = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+    back = _back_to_app()
+    record = USERS.get(email)
+    if record and secrets.compare_digest(record["password"], password) and back:
+        return redirect(back)
+    temporary = IDP_TEMPORARY.get(email)
+    if temporary and secrets.compare_digest(temporary, password):
+        return render(
+            "Update password",
+            "<h1 id=kc-page-title>Update password</h1>"
+            "<p>You need to change your password to activate your account.</p>",
+        )
+    return render("Sign in", _IDP_FORM, back=back, error="Invalid username or password."), 401
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None

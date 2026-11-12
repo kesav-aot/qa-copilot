@@ -20,6 +20,12 @@ def ref_to_env_var(ref: str) -> str:
     return PREFIX + path.replace("/", "__").replace("-", "_").upper()
 
 
+# Keys this process took from a .env file. Those may be replaced when the file
+# is read again - setup has just written a new password - while a variable that
+# came from the real environment still wins over the file, as it always has.
+_FROM_DOTENV: set[str] = set()
+
+
 def load_dotenv(path: Path) -> None:
     if not path.is_file():
         return
@@ -30,7 +36,9 @@ def load_dotenv(path: Path) -> None:
         key, _, value = line.partition("=")
         key = key.strip()
         value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
+        if key not in os.environ or key in _FROM_DOTENV:
+            os.environ[key] = value
+            _FROM_DOTENV.add(key)
 
 
 class EnvSecretProvider(SecretProvider):

@@ -245,6 +245,10 @@ async def run_wizard(
         # The wrong-password probe is optional, so it does not deserve the
         # full budget: a page that will not serve it again should cost seconds.
         probe_timeout_ms = min(setup_timeout_ms, 10_000)
+        # Where the form really is, which is not always where it was asked
+        # for: formsflow and most single-sign-on apps redirect their own
+        # address to the identity provider.
+        form_url = session.page.url
         try:
             await _fill(session.page, found.username.target, username, setup_timeout_ms)
             await _fill(session.page, found.password.target, password, setup_timeout_ms)
@@ -285,19 +289,61 @@ async def run_wizard(
             _say(f"{DIM}  ({type(exc).__name__}){RESET}")
             _say(f"{DIM}  Nothing was written.{RESET}")
             return 1
+        # Where the form lives decides what "signed in" looks like. On the
+        # application itself, it means leaving the sign-in page. On another
+        # site - single sign-on, Keycloak - it means coming back to the
+        # application at all. The old check compared the path the browser
+        # landed on with the sign-in *address*; with an absolute address those
+        # can never be equal, so a failed Keycloak sign-in, which leaves the
+        # browser on Keycloak's own login-actions page, was reported as
+        # "Signed in" and that Keycloak page saved as the success URL.
+        sign_in = urlparse(form_url or sign_in_url(base, login_path))
+        app_host = urlparse(base).netloc
+        elsewhere = sign_in.netloc != app_host
+        if elsewhere:
+            try:
+                await session.page.wait_for_url(
+                    lambda u: urlparse(u).netloc == app_host,
+                    timeout=min(setup_timeout_ms, 30_000),
+                )
+            except Exception:
+                pass  # judged below, with the page as it is
         try:
             await session.page.wait_for_load_state("networkidle", timeout=10_000)
         except Exception:
             pass
 
-        landed = urlparse(session.page.url).path or "/"
+        now = urlparse(session.page.url)
+        landed = now.path or "/"
         error_target = await find_error_target(session.page)
+        still_signing_in = (
+            now.netloc != app_host
+            if elsewhere
+            else landed.rstrip("/") == sign_in.path.rstrip("/")
+        )
 
-        if landed.rstrip("/") == login_path.rstrip("/") or error_target is not None:
+        if still_signing_in or error_target is not None:
             _say(f"{RED}  Signing in did not work — I am still on the sign-in page.{RESET}")
+            if elsewhere:
+                _say(f"    The browser stayed on {now.netloc} and never came back to {app_host}.")
             if error_target is not None:
                 _say(f"    The page shows an error: {error_target.summary()}")
-            _say("    Check the username and password, then run `qa-copilot init` again.")
+            else:
+                # No error message usually means the sign-in site wants
+                # something more - a new password, a one-time code, terms to
+                # accept. Its heading says which.
+                try:
+                    headings = await session.page.evaluate(
+                        "() => Array.from(document.querySelectorAll('h1,h2,#kc-page-title'))"
+                        ".map(e => e.innerText.trim()).filter(Boolean).slice(0, 3)"
+                    )
+                except Exception:
+                    headings = []
+                if headings:
+                    _say(f"    The page is asking: {' / '.join(headings)}")
+                    _say("    If that is a new password, a code or terms to accept, sign in")
+                    _say("    once by hand to deal with it, then try again.")
+            _say("    Check the username and password, then try again.")
             _say(f"{DIM}    Nothing was written.{RESET}")
             return 1
 

@@ -508,3 +508,11 @@ def test_a_bare_hostname_is_accepted_and_made_absolute(session, workspace):
 def test_something_that_is_not_a_web_address_is_refused(session, workspace):
     result = submit(session, app_url="not a url at all", environment="public", no_login="1")
     assert result["state"] == "failed"
+
+
+def test_the_page_lets_an_account_have_abilities_of_its_own(session):
+    """Only four fixed abilities were offered, so a formsflow designer could
+    not be marked as one, and form-building tests had no account to ask for."""
+    html = webui.page(session)
+    assert 'name="more_caps"' in html
+    assert "design_forms" in html

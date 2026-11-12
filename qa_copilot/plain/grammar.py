@@ -160,6 +160,12 @@ def _resolve_actor(who: str, ctx) -> tuple[dict[str, Any] | None, str, str | Non
 
 
 _ROLE_WORDS: list[tuple[re.Pattern[str], list[str]]] = [
+    # formsflow's three roles, and the words the qa-formsflow skill tells
+    # setup to use for them. Before "user", which would otherwise take
+    # "a designer user" for a plain browse account.
+    (re.compile(r"(?i)\b(form\s+)?designers?\b"), ["design_forms"]),
+    (re.compile(r"(?i)\breviewers?\b"), ["review_tasks"]),
+    (re.compile(r"(?i)\b(client|submitter|applicant)s?\b"), ["submit_forms", "browse"]),
     (re.compile(r"(?i)\badmin(istrator)?\b"), ["manage_users", "manage_settings", "admin"]),
     (re.compile(r"(?i)\bsuper ?user\b"), ["manage_settings", "admin"]),
     (re.compile(r"(?i)\b(standard|normal|regular|ordinary|basic)\b"), ["browse"]),

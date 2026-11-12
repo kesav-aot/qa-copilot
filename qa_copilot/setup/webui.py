@@ -267,7 +267,12 @@ class SetupSession:
         account = free_account_name(
             self.config_dir, (form.get("account") or "admin").strip() or "admin", environment
         )
-        capabilities = ", ".join(form.get("capabilities", "browse").split(",")) or "browse"
+        wanted = [
+            re.sub(r"[^a-z0-9]+", "_", c.strip().lower()).strip("_")
+            # Commas only: "Design Forms" is one ability, design_forms.
+            for c in (form.get("capabilities") or "").split(",")
+        ]
+        capabilities = ", ".join(dict.fromkeys(c for c in wanted if c)) or "browse"
 
         extra_values = {
             key[len("extra_") :]: value
@@ -801,6 +806,11 @@ allowed to do, never the credential.</div>
 
   <fieldset><legend>What is this account allowed to do?</legend>
     {{CAPABILITIES}}
+    <label class="f"><span class="t">Anything else it can do</span>
+      <span class="h">Your own words, separated by commas — tests ask for an
+      account by these. For formsflow: <code>design_forms</code>,
+      <code>review_tasks</code> or <code>submit_forms</code></span>
+      <input type="text" name="more_caps" placeholder="design_forms"></label>
   </fieldset>
 
   <button type="button" id="look">Look at the sign-in page</button>
@@ -891,11 +901,13 @@ f.addEventListener('submit', async (e) => {
     'Opening a browser to look at your sign-in page. This can take a moment.';
   const data = new URLSearchParams();
   for (const [k, v] of new FormData(f)) {
-    if (k === 'cap') continue;
+    if (k === 'cap' || k === 'more_caps') continue;
     data.append(k, v);
   }
+  const more = (f.querySelector('input[name=more_caps]').value || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
   data.append('capabilities',
-    [...f.querySelectorAll('input[name=cap]:checked')].map(c => c.value).join(','));
+    [...f.querySelectorAll('input[name=cap]:checked')].map(c => c.value).concat(more).join(','));
   creds.querySelectorAll('[data-field]').forEach(i => {
     const name = i.dataset.field;
     data.append(name === 'username' || name === 'password' ? name : 'extra_' + name, i.value);

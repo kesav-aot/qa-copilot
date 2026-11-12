@@ -279,3 +279,20 @@ def test_row_scoping_needs_the_word_row_for_in():
 
 def test_for_still_scopes_without_the_word_row():
     assert steps("Click Disable for Rae Rivera")[0]["target"]["within"] == "Rae Rivera"
+
+
+def test_formsflow_roles_name_the_abilities_setup_gives_them():
+    from qa_copilot.plain.grammar import _resolve_actor
+
+    class Ctx:
+        identities = ["DESIGNER_USER", "REVIEWER_USER", "CLIENT_USER2"]
+        capabilities = {"design_forms", "review_tasks", "submit_forms", "browse"}
+
+    for words, capability in [
+        ("a designer", "design_forms"),
+        ("a form designer", "design_forms"),
+        ("a reviewer", "review_tasks"),
+        ("a client", "submit_forms"),
+    ]:
+        step, _, error = _resolve_actor(words, Ctx())
+        assert error is None and step == {"action": "authenticate", "capability": capability}, words

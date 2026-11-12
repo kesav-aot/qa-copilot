@@ -191,31 +191,63 @@ async def test_the_form_is_not_reloaded_before_it_is_filled(workspace, demo_serv
     assert "QA_SECRET__TARGET__ADMIN__PASSWORD" in (workspace / ".env").read_text()
 
 
-def test_setup_accepts_an_absolute_sign_in_address(workspace, demo_server):
-    # Synchronous on purpose: provision() calls asyncio.run() itself, which
-    # cannot be nested inside a running loop.
-    """The application on one address and the sign-in form on another, which is
-    what single sign-on looks like."""
-    import yaml
-
+def _sso(demo_server: str, username: str, password: str, workspace):
+    """The app under one host name, its sign-in site under another - which is
+    what formsflow and Keycloak look like to a browser."""
     from qa_copilot.setup import webui
 
+    port = demo_server.rsplit(":", 1)[-1]
+    app_url = f"http://localhost:{port}"
+    sign_in = f"{demo_server}/idp/auth?redirect_uri={app_url}/listing"
     session = webui.SetupSession(workspace / "config", workspace / ".env", workspace)
-    absolute = f"{demo_server}/login?client_id=web&state=abc"
     result = session.provision(
         {
-            "app_url": "http://localhost:8099",
-            "login_path": absolute,
+            "app_url": app_url,
+            "login_path": sign_in,
             "environment": "sso",
             "account": "designer",
-            "capabilities": "browse",
-            "username": USERNAME,
-            "password": PASSWORD,
+            "capabilities": "browse, Design Forms",
+            "username": username,
+            "password": password,
         }
     )
-    assert result["state"] == "done", result["detail"][-400:]
+    return result, app_url, sign_in
+
+
+# Synchronous on purpose: provision() calls asyncio.run() itself, which cannot
+# be nested inside a running loop.
+def test_setup_accepts_an_absolute_sign_in_address(workspace, demo_server):
+    import yaml
+
+    result, app_url, sign_in = _sso(demo_server, USERNAME, PASSWORD, workspace)
+    assert result["state"] == "done", result["detail"][-600:]
 
     environments = yaml.safe_load((workspace / "config" / "environments.yaml").read_text())
     entry = environments["environments"]["sso"]
-    assert entry["base_url"] == "http://localhost:8099", "the app keeps its own address"
-    assert entry["login"]["path"] == absolute, "and the form keeps the one it was given"
+    assert entry["base_url"] == app_url, "the app keeps its own address"
+    assert entry["login"]["path"] == sign_in, "and the form keeps the one it was given"
+    # Signed in means back in the app - so the page saved as proof of it is
+    # the app's, never a page on the sign-in site.
+    assert entry["login"]["success_url_contains"] == "/listing"
+
+    identities = yaml.safe_load((workspace / "config" / "identities.yaml").read_text())
+    assert identities["identities"]["DESIGNER_USER"]["capabilities"] == ["browse", "design_forms"]
+
+
+def test_staying_on_the_sign_in_site_is_not_signing_in(workspace, demo_server):
+    """The formsflow report: setup said "Signed in" and ended on the Keycloak
+    URL. An account with a temporary password is shown "Update password" there,
+    with no error message, and never reaches the app."""
+    result, _, _ = _sso(demo_server, "new@qa.local", "Temp-Demo-Pass!", workspace)
+    assert result["state"] == "failed", result
+    assert "never came back" in result["detail"]
+    assert "Update password" in result["detail"]
+    assert not (workspace / "config" / "environments.yaml").exists()
+    assert not (workspace / ".env").exists()
+
+
+def test_a_wrong_password_on_the_sign_in_site_is_reported(workspace, demo_server):
+    result, _, _ = _sso(demo_server, USERNAME, "definitely-not-right", workspace)
+    assert result["state"] == "failed", result
+    assert "Invalid username or password" in result["detail"]
+    assert not (workspace / "config" / "environments.yaml").exists()

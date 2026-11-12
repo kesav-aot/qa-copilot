@@ -43,6 +43,23 @@ Sign-in is Keycloak, usually on a **different host** from the web app. Setup
 (`open_setup`) handles that; the form's fields are `#username`, `#password` and
 the button `#kc-login`. Never ask for a password — ask which test account.
 
+Before opening setup, tell the person what to enter there:
+
+- **Address of your app** — the formsflow web address, e.g.
+  `https://forms-flow-web-qa.example.com`.
+- **Sign-in page** — `/`. formsflow sends the browser on to Keycloak by
+  itself, and setup follows it.
+- **Nickname** — the role, e.g. `designer`, so the alias reads `DESIGNER_USER`.
+- **Anything else it can do** — `design_forms` for a designer,
+  `review_tasks` for a reviewer, `submit_forms` for a client. Without it,
+  nothing marks the account as able to build forms.
+
+Setup only reports success once the browser is back inside formsflow. If it
+says the browser stayed on Keycloak, the account did not sign in — wrong
+password, or Keycloak wants a new password or a one-time code first — and
+nothing was saved. The new account is usable straight away: there is no need
+to restart Claude Desktop, and `list_identities` shows it on the next call.
+
 formsflow decides what a person sees from permissions, which come from groups:
 
 | Group | Lands on | Sees |
@@ -55,8 +72,8 @@ formsflow decides what a person sees from permissions, which come from groups:
 A stock install has only an admin user: designer, reviewer and client test
 accounts have to be created in Keycloak and added through setup. If
 `list_identities` shows no designer, say so rather than testing the designer as
-an admin. Suggested capabilities when the accounts are set up: `design_forms`,
-`review_tasks`, `submit_forms`, `manage_users`.
+an admin. In a test, `Log in as a designer`, `as a reviewer` and `as a client`
+pick the accounts holding `design_forms`, `review_tasks` and `submit_forms`.
 
 A multi-tenant install puts `/tenant/<key>` in front of every address below.
 

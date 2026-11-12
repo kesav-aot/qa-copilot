@@ -55,6 +55,26 @@ _EXECUTES = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_wo
 _WRITES = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
 
 _copilot: QACopilot | None = None
+_loaded_stamp: tuple = ()
+
+
+def _watched_files(c: QACopilot) -> list[Path]:
+    """The files whose contents decide what the tools answer."""
+    paths = sorted(c.config_dir.glob("*.yaml"))
+    for extra in (c.config.dotenv_path, c.config.secret_file_path):
+        if extra is not None:
+            paths.append(extra)
+    return paths
+
+
+def _stamp(c: QACopilot) -> tuple:
+    out = []
+    for path in _watched_files(c):
+        try:
+            out.append((str(path), path.stat().st_mtime_ns, path.stat().st_size))
+        except OSError:
+            out.append((str(path), None, None))
+    return tuple(out)
 
 
 def _deliver(result: dict[str, Any]) -> dict[str, Any]:
@@ -91,12 +111,39 @@ def _deliver(result: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _load() -> QACopilot:
+    config_dir = Path(os.environ.get("QA_COPILOT_CONFIG", "config"))
+    state_dir = Path(os.environ.get("QA_COPILOT_STATE", ".qa-copilot"))
+    return QACopilot.load(config_dir, state_dir)
+
+
 def copilot() -> QACopilot:
-    global _copilot
+    """The loaded configuration, reloaded whenever its files change.
+
+    It used to be read once, when the first tool was called. The setup page
+    writes a new environment and account while the server is running, so the
+    lists stayed empty after setup said it had finished, until Claude Desktop
+    was restarted - which nobody is told to do and nobody would guess.
+    Checking a handful of file timestamps per call is cheap; a restart is not.
+    """
+    global _copilot, _loaded_stamp
     if _copilot is None:
-        config_dir = Path(os.environ.get("QA_COPILOT_CONFIG", "config"))
-        state_dir = Path(os.environ.get("QA_COPILOT_STATE", ".qa-copilot"))
-        _copilot = QACopilot.load(config_dir, state_dir)
+        _copilot = _load()
+        _loaded_stamp = _stamp(_copilot)
+        return _copilot
+    current = _stamp(_copilot)
+    if current != _loaded_stamp:
+        try:
+            fresh = _load()
+        except Exception as exc:  # noqa: BLE001 - a half-written file must not take every tool down
+            with contextlib.suppress(Exception):
+                _copilot.audit.write("config.reload_failed", detail=f"{type(exc).__name__}: {exc}")
+            # Try again on the next call rather than settling on a broken read.
+            return _copilot
+        _copilot = fresh
+        _loaded_stamp = _stamp(fresh)
+        with contextlib.suppress(Exception):
+            fresh.audit.write("config.reloaded", environments=sorted(fresh.config.environments))
     return _copilot
 
 
